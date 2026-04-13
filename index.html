@@ -543,6 +543,7 @@
                                             <th class="px-5 md:px-8 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">邮箱账号</th>
                                             <th class="px-5 md:px-8 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">鉴权类型</th>
                                             <th class="px-5 md:px-8 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">状态</th>
+                                            <th class="px-5 md:px-8 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">分裂次数</th>
                                             <th class="px-5 md:px-8 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">导入时间</th>
                                             <th class="px-5 md:px-8 py-4 text-center text-[11px] font-black text-slate-400 uppercase tracking-widest min-w-[120px]">操作</th>
                                         </tr>
@@ -565,6 +566,7 @@
                                                 <span v-else-if="mb.status === 2" class="px-2.5 py-1 text-[10px] font-black bg-blue-50 text-blue-600 rounded-md border border-blue-200">🏆 已出凭证</span>
                                                 <span v-else class="px-2.5 py-1 text-[10px] font-black bg-rose-50 text-rose-600 rounded-md border border-rose-200">❌ 失效/死号</span>
                                             </td>
+                                            <td class="px-5 md:px-8 py-4 whitespace-nowrap text-sm text-slate-500 font-mono">{{ mb.fission_count || 0 }} <small class="opacity-70">fission</small></td>
                                             <td class="px-5 md:px-8 py-4 whitespace-nowrap text-sm text-slate-500 font-mono">{{ formatTime(mb.created_at) }}</td>
                                             <td class="px-5 md:px-8 py-4 whitespace-nowrap text-center">
                                                 <button v-if="!mb.refresh_token"
@@ -851,21 +853,30 @@
                                             <div class="relative w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all after:shadow-sm peer-checked:bg-indigo-600 shadow-inner transition-all"></div>
                                         </label>
                                     </div>
-
                                     <transition name="fade">
                                         <div v-if="!config.local_microsoft.enable_fission" class="bg-sky-50 border border-sky-200 text-sky-800 p-4 rounded-xl mb-4 font-bold text-sm shadow-sm flex items-center gap-2">
                                             <span class="text-xl">📬</span>
                                             <div><b>微软邮箱库：</b>系统将从“微软邮箱库”提取账号。<br><span class="text-xs text-sky-600">※ 兼容账号密码格式导入，无Client ID需要在下方填写Client ID，无Refresh Token可点击左侧微软邮箱库“去授权”。</span></div>
                                         </div>
+
                                         <div v-else class="bg-indigo-50 border border-indigo-200 text-indigo-800 p-4 rounded-xl mb-4 font-bold text-sm shadow-sm flex items-center gap-2">
                                             <span class="text-xl">🚀</span>
                                             <div><b>无限裂变模式：</b>系统将利用下方主号，自动生成无尽别名进行注册。</div>
                                         </div>
                                     </transition>
-
+                                    <div v-if="!config.local_microsoft.enable_fission" class="flex items-center justify-between p-3 mb-3 bg-slate-50 border border-slate-200 rounded-xl shadow-sm animate-fade-in">
+                                        <div class="flex flex-col">
+                                            <span class="text-xs font-black text-slate-700 uppercase tracking-widest">微软邮箱库分裂</span>
+                                            <span class="text-[10px] text-slate-500 font-bold">开启后：将压榨微软邮箱库账号</span>
+                                        </div>
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" v-model="config.local_microsoft.pool_fission" class="sr-only peer">
+                                            <div class="relative w-9 h-5 shrink-0 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-blue-600 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                        </label>
+                                    </div>
                                     <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                                        <label class="block text-slate-700 text-xs font-extrabold mb-1.5 uppercase tracking-wider">全局 Client ID (graph应用ID)</label>
-                                        <input type="text" v-model="config.local_microsoft.client_id" class="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-700 rounded-lg py-2.5 px-3 shadow-inner font-mono text-sm" placeholder="如果导入的账号自带ID则优先用自带的，否则用此全局兜底">
+                                        <label class="block text-slate-700 text-xs font-extrabold mb-1.5 uppercase tracking-wider">全局 Client ID (graph应用ID 选填)</label>
+                                        <input type="text" v-model="config.local_microsoft.client_id" class="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-700 rounded-lg py-2.5 px-3 shadow-inner font-mono text-sm" placeholder="如果导入的账号自带client_id则优先用自带的，否则用此全局兜底">
                                     </div>
 
                                     <div v-if="config.local_microsoft.enable_fission" class="space-y-4 pt-4 border-t-2 border-dashed border-slate-100 animate-fade-in">

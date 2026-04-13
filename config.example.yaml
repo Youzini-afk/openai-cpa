@@ -55,6 +55,7 @@ local_microsoft:
   master_email: ""
   client_id: ""
   refresh_token: ""
+  pool_fission: false
 
 # [模式 "freemail" 专属]
 freemail:

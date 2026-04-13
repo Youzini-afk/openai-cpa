@@ -42,6 +42,11 @@ def init_db():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
+        try:
+            c.execute('ALTER TABLE local_mailboxes ADD COLUMN fission_count INTEGER DEFAULT 0;')
+            c.execute('ALTER TABLE local_mailboxes ADD COLUMN retry_master INTEGER DEFAULT 0;')
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
     print(f"[{ts()}] [系统] 数据库模块初始化完成")
 
@@ -273,3 +278,65 @@ def update_local_mailbox_refresh_token(email: str, new_rt: str):
             conn.execute("UPDATE local_mailboxes SET refresh_token = ? WHERE email = ?", (new_rt, email))
             conn.commit()
     except Exception: pass
+
+def get_and_lock_unused_local_mailbox() -> dict:
+    """不分裂"""
+    try:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute("BEGIN EXCLUSIVE")
+            c.execute("SELECT * FROM local_mailboxes WHERE status = 0 ORDER BY id ASC LIMIT 1")
+            row = c.fetchone()
+            if row:
+                c.execute("UPDATE local_mailboxes SET status = 1 WHERE id = ?", (row['id'],))
+                conn.commit()
+                return dict(row)
+            conn.commit()
+    except Exception as e: print(f"[{ts()}] [ERROR] {e}")
+    return None
+
+
+def get_mailbox_for_pool_fission() -> dict:
+    """
+    提取的同时立刻增加计数，防止多线程撞车
+    """
+    try:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute("BEGIN EXCLUSIVE")
+            c.execute("SELECT * FROM local_mailboxes WHERE status = 0 AND retry_master = 1 LIMIT 1")
+            row = c.fetchone()
+
+            if not row:
+                c.execute("SELECT * FROM local_mailboxes WHERE status = 0 ORDER BY fission_count ASC LIMIT 1")
+                row = c.fetchone()
+
+            if row:
+                c.execute("UPDATE local_mailboxes SET fission_count = fission_count + 1 WHERE id = ?", (row['id'],))
+                conn.commit()
+                return dict(row)
+
+            conn.commit()
+            return None
+    except Exception as e:
+        print(f"[{ts()}] [DB_ERROR] 提取失败: {e}")
+        return None
+
+def update_pool_fission_result(email: str, is_blocked: bool, is_raw: bool):
+    """
+    处理库分裂结果：
+    """
+    try:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            if not is_blocked:
+                conn.execute("UPDATE local_mailboxes SET retry_master = 0 WHERE email = ?", (email,))
+            else:
+                if not is_raw:
+                    conn.execute("UPDATE local_mailboxes SET retry_master = 1 WHERE email = ?", (email,))
+                else:
+                    conn.execute("UPDATE local_mailboxes SET status = 3, retry_master = 0 WHERE email = ?", (email,))
+            conn.commit()
+    except Exception as e:
+        print(f"[{ts()}] [DB_ERROR] 结果更新失败: {e}")

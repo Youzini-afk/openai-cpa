@@ -343,6 +343,7 @@ def get_email_and_token(proxies: Any = None) -> tuple:
 
         mailbox_info = ms_service.get_unused_mailbox()
         if not mailbox_info:
+            cfg.POOL_EXHAUSTED = True
             print(f"[{cfg.ts()}] [WARNING] 微软邮箱库已耗尽，请前往前端导入更多账号。")
             return None, None
 
@@ -563,11 +564,18 @@ def _create_imap_conn(proxy_str=None):
         return ProxyIMAP4_SSL(cfg.IMAP_SERVER, cfg.IMAP_PORT, proxy_url=proxy_str, timeout=15)
     return imaplib.IMAP4_SSL(cfg.IMAP_SERVER, cfg.IMAP_PORT, timeout=15)
 
+
 def _poll_local_ms_for_oai_code_graph(ms_service, target_email: str, mailbox_dict: dict, max_attempts: int) -> str:
     from datetime import datetime
+    import time
+
     assigned_at = float(mailbox_dict.get("assigned_at") or time.time())
-    tgt = target_email.lower()
-    print(f"[{cfg.ts()}] [SYSTEM] 进入 Graph 轮询器，目标: {mask_email(target_email)}", flush=True)
+    tgt = target_email.lower().strip()
+    master_email = tgt.split('+')[0] + '@' + tgt.split('@')[1] if '+' in tgt else tgt
+
+    processed_msg_ids = set()
+
+    print(f"[{cfg.ts()}] [INFO] 进入 Graph 轮询器，靶向目标: {mask_email(tgt)}", flush=True)
 
     for attempt in range(max_attempts):
         if getattr(cfg, 'GLOBAL_STOP', False): return ""
@@ -575,26 +583,42 @@ def _poll_local_ms_for_oai_code_graph(ms_service, target_email: str, mailbox_dic
         messages = ms_service.fetch_openai_messages(mailbox_dict)
         if not messages:
             if attempt % 2 == 0:
-                print(f"[{cfg.ts()}] [INFO] 尝试第 {attempt + 1} 次: 未发现任何 OpenAI 邮件", flush=True)
+                print(f"[{cfg.ts()}] [INFO] 第 {attempt + 1} 次轮询: 未发现任何邮件", flush=True)
         else:
             for msg in messages:
-                subject = msg.get('subject', '')
-                sender = msg.get('from', {}).get('emailAddress', {}).get('address', '')
-                recipients = [r.get('emailAddress', {}).get('address', '').lower() for r in msg.get('toRecipients', [])]
+                msg_id = msg.get('id')
+                if msg_id in processed_msg_ids:
+                    continue
                 raw_date = msg.get('receivedDateTime', '').replace('Z', '+00:00')
                 try:
                     received_ts = datetime.fromisoformat(raw_date).timestamp()
-                    if received_ts < assigned_at - 600:
+                    if received_ts < assigned_at - 60:
                         continue
-                except:
+                except Exception:
+                    continue
+                sender = str(msg.get('from', {}).get('emailAddress', {}).get('address', '')).lower()
+                if "openai.com" not in sender:
+                    continue
+                subject = msg.get('subject', '').lower()
+                if not any(k in subject for k in ["code", "verify", "chatgpt", "openai"]):
                     continue
 
+                recipients = [str(r.get('emailAddress', {}).get('address', '')).lower().strip()
+                              for r in msg.get('toRecipients', [])]
                 body_content = msg.get('body', {}).get('content', '')
-                if any(tgt in r for r in recipients) or tgt in body_content.lower():
+
+                is_hit = (tgt in recipients) or (f"to: {tgt}" in body_content.lower()) or (tgt in body_content.lower())
+
+                if not is_hit and master_email in recipients and (time.time() - received_ts < 30):
+                    is_hit = True
+
+                if is_hit:
                     code = _extract_otp_code(f"{subject}\n{body_content}")
                     if code:
-                        print(f"\n[{cfg.ts()}] [SUCCESS] 提取成功: {code}", flush=True)
+                        print(f"\n[{cfg.ts()}] [SUCCESS] 🎯 成功捕获专属验证码: {code} -> {mask_email(tgt)}", flush=True)
                         return code
+
+                processed_msg_ids.add(msg_id)
 
         time.sleep(5)
     return ""
@@ -643,7 +667,8 @@ def get_oai_code(
             pass
 
         if local_ms_account:
-            local_ms_account["email"] = str(local_ms_account.get("email") or email).strip().lower()
+            local_ms_account["email"] = str(local_ms_account.get("email") or email).strip()
+            local_ms_account["assigned_at"] = time.time() - 30
             from utils.email_providers.local_microsoft_service import LocalMicrosoftService
             ms_service = LocalMicrosoftService(proxies=mail_proxies)
             return _poll_local_ms_for_oai_code_graph(

@@ -1048,7 +1048,7 @@ async def import_mailboxes(req: ImportMailboxReq, token: str = Depends(verify_to
         parts = [p.strip() for p in text.split("----")]
         if len(parts) >= 2 and "@" in parts[0]:
             parsed_mailboxes.append({
-                "email": parts[0].lower(),
+                "email": parts[0],
                 "password": parts[1],
                 "client_id": parts[2] if len(parts) >= 3 else "",
                 "refresh_token": parts[3] if len(parts) >= 4 else ""

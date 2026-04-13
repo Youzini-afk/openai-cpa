@@ -92,6 +92,7 @@ IMAP_USER: str = ""
 IMAP_PASS: str = ""
 
 LOCAL_MS_ENABLE_FISSION: bool = False
+LOCAL_MS_POOL_FISSION: bool = False
 LOCAL_MS_MASTER_EMAIL: str = ""
 LOCAL_MS_PASSWORD: str = ""
 LOCAL_MS_CLIENT_ID: str = ""
@@ -203,7 +204,6 @@ CLUSTER_SECRET: str = "wenfxl666"
 
 REG_MODE: str = "protocol"
 
-
 def reload_all_configs():
     global _c
     global EMAIL_API_MODE, MAIL_DOMAINS, GPTMAIL_BASE, ADMIN_AUTH
@@ -241,7 +241,7 @@ def reload_all_configs():
     global DUCK_USE_PROXY
     global CLUSTER_NODE_NAME, CLUSTER_MASTER_URL, CLUSTER_SECRET
     global REG_MODE
-    global LOCAL_MS_ENABLE_FISSION, LOCAL_MS_MASTER_EMAIL, LOCAL_MS_PASSWORD, LOCAL_MS_CLIENT_ID, LOCAL_MS_REFRESH_TOKEN
+    global LOCAL_MS_ENABLE_FISSION, LOCAL_MS_MASTER_EMAIL, LOCAL_MS_PASSWORD, LOCAL_MS_CLIENT_ID, LOCAL_MS_REFRESH_TOKEN, LOCAL_MS_POOL_FISSION
 
     def safe_int(value, default, minimum=None):
         try:
@@ -344,6 +344,7 @@ def reload_all_configs():
 
     _local_microsoft = _c.get("local_microsoft", {})
     LOCAL_MS_ENABLE_FISSION = bool(_local_microsoft.get("enable_fission", False))
+    LOCAL_MS_POOL_FISSION = bool(_local_microsoft.get("pool_fission", False))
     LOCAL_MS_MASTER_EMAIL = str(_local_microsoft.get("master_email", "")).strip()
     LOCAL_MS_CLIENT_ID = str(_local_microsoft.get("client_id", "")).strip()
     LOCAL_MS_REFRESH_TOKEN = str(_local_microsoft.get("refresh_token", "")).strip()

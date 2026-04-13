@@ -482,6 +482,19 @@ def handle_registration_result(result: Any, cpa_upload: bool = False, run_ctx: d
     if getattr(cfg, 'GLOBAL_STOP', False):
         return "stopped"
     global run_stats
+
+    last_email = mail_service.get_last_email()
+    if not last_email or "@" not in last_email:
+        return "failed"
+
+    if "+" in last_email:
+        u_part, d_part = last_email.split("@")
+        master_email = f"{u_part.split('+')[0]}@{d_part}"
+        is_raw = False
+    else:
+        master_email = last_email
+        is_raw = True
+
     is_dead = False
     if run_ctx:
         if run_ctx.get('pwd_blocked'):
@@ -490,10 +503,14 @@ def handle_registration_result(result: Any, cpa_upload: bool = False, run_ctx: d
         if run_ctx.get('phone_verify'):
             with _stats_lock: run_stats["phone_verify"] += 1
             is_dead = True
-    last_email = mail_service.get_last_email()
-    if is_dead and getattr(cfg, "EMAIL_API_MODE", "") == "local_microsoft" and last_email:
-        db_manager.update_local_mailbox_status(last_email, 3)
-        print(f"[{ts()}] [WARNING] 触发风控(出手机/密码受阻)，已将邮箱标记为死号: {mask_email(last_email)}")
+    signup_blocked = run_ctx.get('signup_blocked', False) if run_ctx else False
+    if (signup_blocked or is_dead) and getattr(cfg, "EMAIL_API_MODE", "") == "local_microsoft":
+        if getattr(cfg, "LOCAL_MS_POOL_FISSION", False):
+            db_manager.update_pool_fission_result(master_email, is_blocked=True, is_raw=is_raw)
+        elif not getattr(cfg, "LOCAL_MS_ENABLE_FISSION", False):
+            db_manager.update_local_mailbox_status(master_email, 3)
+            print(f"[{ts()}] [WARNING] 触发风控，已将主号标记为死号: {mask_email(master_email)}")
+
     cur_dom = last_email.split("@")[-1] if last_email and "@" in last_email else None
 
     token_json_str = None
@@ -524,8 +541,7 @@ def handle_registration_result(result: Any, cpa_upload: bool = False, run_ctx: d
         if (cpa_upload and cfg.SAVE_TO_LOCAL_IN_CPA_MODE) or not cpa_upload:
             if db_manager.save_account_to_db(account_email, password, token_json_str):
                 print(f"[{ts()}] [SUCCESS] 账号密码与 Token 已安全存入: {mask_email(account_email)}")
-        if cfg.EMAIL_API_MODE == "local_microsoft":
-            db_manager.update_local_mailbox_status(account_email, 2)
+
         # CPA 云端上传
         if cpa_upload:
             success, up_msg = upload_to_cpa_integrated(token_data, cfg.CPA_API_URL, cfg.CPA_API_TOKEN)
@@ -533,6 +549,11 @@ def handle_registration_result(result: Any, cpa_upload: bool = False, run_ctx: d
                 print(f"[{ts()}] [SUCCESS] 补货凭证 {mask_email(account_email)} 云端上传成功！")
             else:
                 print(f"[{ts()}] [ERROR] 云端上传失败: {up_msg}")
+
+        if getattr(cfg, "LOCAL_MS_POOL_FISSION", False) and cfg.EMAIL_API_MODE == "local_microsoft":
+            db_manager.update_pool_fission_result(master_email, is_blocked=False, is_raw=is_raw)
+        elif not getattr(cfg, "LOCAL_MS_ENABLE_FISSION", False) and cfg.EMAIL_API_MODE == "local_microsoft":
+            db_manager.update_local_mailbox_status(master_email, 2)
 
         safe_pwd = str(password) if password else ""
         orig_masked_email = mail_service.mask_email(account_email, force_mask=True)
@@ -812,7 +833,7 @@ def normal_main_loop(args, stop_event: threading.Event):
     success_count  = 0
     total_attempts = 0
 
-    while not stop_event.is_set():
+    while not stop_event.is_set() and not cfg.POOL_EXHAUSTED:
         if target_count > 0 and success_count >= target_count:
             print(f"\n[{ts()}] [SUCCESS] 已达到目标注册数量 ({target_count})，任务圆满结束！")
             break
@@ -960,7 +981,7 @@ async def cpa_main_loop(args, async_stop_event: asyncio.Event):
 
     loop = asyncio.get_running_loop()
 
-    while not async_stop_event.is_set():
+    while not async_stop_event.is_set() and not cfg.POOL_EXHAUSTED:
         try:
             if cfg.CPA_AUTO_CHECK:
                 valid_count, total_files = await perform_cpa_check(args, async_stop_event, loop)
@@ -1000,7 +1021,7 @@ async def cpa_main_loop(args, async_stop_event: asyncio.Event):
                             cfg.PROXY_QUEUE.task_done()
                     return run_and_refresh(args.proxy, args, cpa_upload=True, skip_switch=True)
 
-                while success_in_this_cycle < need_to_reg and not async_stop_event.is_set():
+                while success_in_this_cycle < need_to_reg and not async_stop_event.is_set() and not cfg.POOL_EXHAUSTED:
                     remaining  = need_to_reg - success_in_this_cycle
                     batch_size = min(cfg.REG_THREADS, remaining)
 
@@ -1077,7 +1098,7 @@ async def sub2api_main_loop(args, async_stop_event: asyncio.Event):
     loop = asyncio.get_running_loop()
     client = Sub2APIClient(api_url=cfg.SUB2API_URL, api_key=cfg.SUB2API_KEY)
 
-    while not async_stop_event.is_set():
+    while not async_stop_event.is_set() and not cfg.POOL_EXHAUSTED:
 
         try:
             if cfg.SUB2API_AUTO_CHECK:
@@ -1150,7 +1171,7 @@ async def sub2api_main_loop(args, async_stop_event: asyncio.Event):
                             cfg.PROXY_QUEUE.task_done()
                     return _sub2api_run_wrapper(args.proxy, True)
 
-                while success_in_this_cycle < need_to_reg and not async_stop_event.is_set():
+                while success_in_this_cycle < need_to_reg and not async_stop_event.is_set() and not cfg.POOL_EXHAUSTED:
                     remaining  = need_to_reg - success_in_this_cycle
                     batch_size = min(cfg.REG_THREADS, remaining)
 
@@ -1265,6 +1286,7 @@ class RegEngine:
             return
         self._force_stopped = False
         cfg.GLOBAL_STOP = False
+        cfg.POOL_EXHAUSTED = False
         self.thread_stop_event.clear()
         args.check_stop = lambda: self.thread_stop_event.is_set()
         self.current_thread = threading.Thread(
@@ -1279,6 +1301,7 @@ class RegEngine:
             return
         self._force_stopped = False
         cfg.GLOBAL_STOP = False
+        cfg.POOL_EXHAUSTED = False
         self.thread_stop_event.clear()
         self.current_thread = threading.Thread(
             target=self._run_cpa_in_thread, args=(args,), daemon=True
@@ -1290,6 +1313,7 @@ class RegEngine:
             return
         self._force_stopped = False
         cfg.GLOBAL_STOP = False
+        cfg.POOL_EXHAUSTED = False
         self.thread_stop_event.clear()
         self.current_thread = threading.Thread(
             target=self._run_sub2api_in_thread, args=(args,), daemon=True
@@ -1320,6 +1344,7 @@ class RegEngine:
     def stop(self):
         self._force_stopped = True
         cfg.GLOBAL_STOP = True
+        cfg.POOL_EXHAUSTED = True
         self.thread_stop_event.set()
         if self.loop and self.async_stop_event:
             self.loop.call_soon_threadsafe(self.async_stop_event.set)
@@ -1333,6 +1358,7 @@ class RegEngine:
         if self.is_running(): return
         self._force_stopped = False
         cfg.GLOBAL_STOP = False
+        cfg.POOL_EXHAUSTED = False
         self.thread_stop_event.clear()
         self.current_thread = threading.Thread(
             target=self._run_check_in_thread, args=(args,), daemon=True
