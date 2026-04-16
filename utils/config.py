@@ -174,6 +174,11 @@ SUB2API_ACCOUNT_PRIORITY: int = 1
 SUB2API_ACCOUNT_RATE_MULTIPLIER: float = 1.0
 SUB2API_ACCOUNT_GROUP_IDS: list = []
 SUB2API_ENABLE_WS_MODE: bool = True
+ENABLE_CODEX2API_MODE: bool = False
+CODEX2API_URL: str = ""
+CODEX2API_ADMIN_KEY: str = ""
+CODEX2API_PUSH_SOURCE: str = "register-oss"
+CODEX2API_THREADS: int = 10
 
 LUCKMAIL_PREFERRED_DOMAIN: str = ""
 LUCKMAIL_EMAIL_TYPE: str = ""
@@ -263,6 +268,7 @@ def reload_all_configs():
     global SUB2API_REMOVE_ON_LIMIT_REACHED, SUB2API_REMOVE_DEAD_ACCOUNTS, SUB2API_ENABLE_TOKEN_REVIVE
     global SUB2API_ACCOUNT_CONCURRENCY, SUB2API_ACCOUNT_LOAD_FACTOR, SUB2API_ACCOUNT_PRIORITY
     global SUB2API_ACCOUNT_RATE_MULTIPLIER, SUB2API_ACCOUNT_GROUP_IDS, SUB2API_ENABLE_WS_MODE
+    global ENABLE_CODEX2API_MODE, CODEX2API_URL, CODEX2API_ADMIN_KEY, CODEX2API_PUSH_SOURCE, CODEX2API_THREADS
     global LUCKMAIL_API_KEY,LUCKMAIL_PREFERRED_DOMAIN,LUCKMAIL_EMAIL_TYPE,LUCKMAIL_VARIANT_MODE,LUCKMAIL_REUSE_PURCHASED, LUCKMAIL_TAG_ID
     global HERO_SMS_ENABLED, HERO_SMS_API_KEY, HERO_SMS_BASE_URL, HERO_SMS_COUNTRY, HERO_SMS_SERVICE
     global HERO_SMS_AUTO_PICK_COUNTRY, HERO_SMS_REUSE_PHONE, HERO_SMS_MAX_PRICE, HERO_SMS_VERIFY_ON_REGISTER
@@ -472,6 +478,13 @@ def reload_all_configs():
     SUB2API_ACCOUNT_RATE_MULTIPLIER = safe_float(_sub2api.get("account_rate_multiplier", 1.0), 1.0, minimum=0.0)
     SUB2API_ACCOUNT_GROUP_IDS = parse_group_ids(_sub2api.get("account_group_ids", ""))
     SUB2API_ENABLE_WS_MODE = safe_bool(_sub2api.get("enable_ws_mode", True), default=True)
+
+    _codex2api = _c.get("codex2api_mode", {})
+    ENABLE_CODEX2API_MODE = _codex2api.get("enable", False)
+    CODEX2API_URL = format_docker_url(str(_codex2api.get("api_url", "")).strip()).rstrip("/")
+    CODEX2API_ADMIN_KEY = _codex2api.get("admin_key", "")
+    CODEX2API_PUSH_SOURCE = str(_codex2api.get("push_source", "register-oss") or "register-oss").strip() or "register-oss"
+    CODEX2API_THREADS = safe_int(_codex2api.get("threads", 10), 10, minimum=1)
 
     _normal          = _c.get("normal_mode", {})
     NORMAL_SLEEP_MIN = _normal.get("sleep_min", 5)

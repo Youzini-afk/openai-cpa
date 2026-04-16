@@ -423,6 +423,9 @@
                                     <button @click="bulkPushSub2API" :disabled="selectedAccounts.length === 0" class="text-xs md:text-sm bg-purple-600 text-white px-4 md:px-5 py-2 rounded-xl hover:bg-purple-700 active:scale-95 transition-all shadow-md shadow-purple-500/20 disabled:opacity-50 font-bold flex items-center gap-2">
                                         <span>🛸</span> Sub
                                     </button>
+                                    <button @click="bulkPushCodex2API" :disabled="selectedAccounts.length === 0" class="text-xs md:text-sm bg-amber-600 text-white px-4 md:px-5 py-2 rounded-xl hover:bg-amber-700 active:scale-95 transition-all shadow-md shadow-amber-500/20 disabled:opacity-50 font-bold flex items-center gap-2">
+                                        <span>🧩</span> Codex
+                                    </button>
                                     <button @click="fetchAccounts(true)" class="text-xs md:text-sm bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl hover:bg-slate-50 active:scale-95 transition-all shadow-sm font-bold flex items-center justify-center">
                                         <span class="text-base">🔄</span>
                                     </button>
@@ -459,6 +462,7 @@
                                             <td class="px-5 md:px-8 py-4 whitespace-nowrap text-center text-sm font-bold flex gap-2 justify-center">
                                                 <button @click="triggerAccountAction(acc, 'push')" class="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-lg active:scale-95 transition-all shadow-sm">推CPA</button>
                                                 <button @click="triggerAccountAction(acc, 'push_sub2api')" class="text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-3 py-1.5 rounded-lg active:scale-95 transition-all shadow-sm">推Sub</button>
+                                                <button @click="triggerAccountAction(acc, 'push_codex2api')" class="text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-lg active:scale-95 transition-all shadow-sm">推Codex</button>
                                             </td>
                                         </tr>
                                     </tbody>
@@ -1878,6 +1882,10 @@
                                             <input type="checkbox" v-model="cloudFilters" value="cpa" @change="fetchCloudAccounts" class="sr-only">
                                             <span class="w-2.5 h-2.5 rounded-full shadow-inner" :class="cloudFilters.includes('cpa') ? 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]' : 'bg-slate-300 shadow-slate-400/50'"></span> CPA
                                         </label>
+                                        <label :class="cloudFilters.includes('codex2api') ? 'bg-white shadow-sm border border-slate-200 text-amber-700' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-300/30'" class="flex items-center gap-2 px-4 py-2 cursor-pointer text-xs md:text-sm font-bold rounded-lg transition-all border border-transparent">
+                                            <input type="checkbox" v-model="cloudFilters" value="codex2api" @change="fetchCloudAccounts" class="sr-only">
+                                            <span class="w-2.5 h-2.5 rounded-full shadow-inner" :class="cloudFilters.includes('codex2api') ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]' : 'bg-slate-300 shadow-slate-400/50'"></span> Codex2API
+                                        </label>
                                     </div>
                                 </div>
 
@@ -1928,6 +1936,7 @@
                                             </td>
                                             <td class="px-5 md:px-8 py-4 whitespace-nowrap">
                                                 <span v-if="acc.account_type === 'sub2api'" class="px-2.5 py-1 rounded-md text-[10px] md:text-xs font-black bg-purple-50 text-purple-600 border border-purple-200 shadow-sm uppercase tracking-widest">Sub2API</span>
+                                                <span v-else-if="acc.account_type === 'codex2api'" class="px-2.5 py-1 rounded-md text-[10px] md:text-xs font-black bg-amber-50 text-amber-700 border border-amber-200 shadow-sm uppercase tracking-widest">Codex2API</span>
                                                 <span v-else class="px-2.5 py-1 rounded-md text-[10px] md:text-xs font-black bg-indigo-50 text-indigo-600 border border-indigo-200 shadow-sm uppercase tracking-widest">CPA</span>
                                             </td>
                                             <td class="px-5 md:px-8 py-4 whitespace-nowrap text-sm font-bold text-slate-700">
@@ -1941,7 +1950,7 @@
 
                                             <td class="px-5 md:px-8 py-4 min-w-[320px]">
 
-                                                <div v-if="acc.account_type === 'sub2api' && acc.details && Object.keys(acc.details).length > 0" class="flex flex-col gap-4 w-full pr-6 bg-slate-50/50 p-3 rounded-xl border border-slate-100">
+                                                <div v-if="(acc.account_type === 'sub2api' || acc.account_type === 'codex2api') && acc.details && Object.keys(acc.details).length > 0" class="flex flex-col gap-4 w-full pr-6 bg-slate-50/50 p-3 rounded-xl border border-slate-100">
                                                     <div>
                                                         <div class="flex justify-between items-end mb-1.5">
                                                             <span class="text-[11px] font-black text-slate-500 uppercase tracking-widest">5h</span>
@@ -2334,6 +2343,63 @@
                                                 <div class="relative w-9 h-5 shrink-0 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-cyan-600 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
                                                 <span class="text-sm font-black text-cyan-900 ml-3 tracking-wide">补货前自动巡检测活</span>
                                             </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 border-t-8 border-t-amber-500 bg-gradient-to-br from-amber-50/20 to-white" v-if="config.codex2api_mode">
+                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 md:mb-8 border-b border-slate-100 pb-5 gap-4">
+                                    <h3 class="text-xl md:text-2xl font-black text-amber-700 tracking-tight flex items-center gap-2"><span>🧩</span> Codex2API 推送中心</h3>
+                                    <label class="relative inline-flex bg-white px-4 py-2.5 md:px-5 md:py-3 rounded-xl cursor-pointer hover:bg-amber-50 transition-colors shadow-sm border border-amber-200 w-full sm:w-auto items-center justify-center group">
+                                        <input type="checkbox" v-model="config.codex2api_mode.enable" class="sr-only peer">
+                                        <div class="relative w-11 h-6 shrink-0 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all after:shadow-sm peer-checked:bg-amber-500 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                        <span class="font-black text-amber-900 text-sm md:text-base ml-3 tracking-wide">启用 Codex2API 推送</span>
+                                    </label>
+                                </div>
+
+                                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8" :class="{'opacity-50 pointer-events-none grayscale-[50%] transition-opacity duration-300': !config.codex2api_mode.enable}">
+                                    <div class="col-span-1 space-y-5 bg-slate-50/80 p-5 md:p-6 rounded-2xl border border-slate-200 shadow-inner">
+                                        <div>
+                                            <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">Codex2API 地址</label>
+                                            <div class="relative">
+                                                <input v-if="!showPwd.codex_url" readonly :value="maskValue(config.codex2api_mode.api_url)"
+                                                       class="w-full appearance-none bg-white border border-amber-200 text-slate-700 rounded-xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-colors shadow-sm text-sm">
+                                                <input v-else type="text" v-model="config.codex2api_mode.api_url" autocomplete="off"
+                                                       class="w-full appearance-none bg-white border border-amber-200 text-slate-700 rounded-xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-colors shadow-sm text-sm"
+                                                       placeholder="https://your-codex2api.example.com">
+                                                <button @click="showPwd.codex_url = !showPwd.codex_url" class="absolute right-3 top-1/2 -translate-y-1/2 text-lg text-slate-400 hover:text-amber-600">
+                                                    {{ showPwd.codex_url ? '👁️' : '🙈' }}
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">Admin Key</label>
+                                            <div class="relative">
+                                                <input :type="showPwd.codex2api ? 'text' : 'password'" v-model="config.codex2api_mode.admin_key" class="w-full appearance-none bg-white border border-amber-200 text-slate-700 rounded-xl py-3 px-4 pr-10 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-colors shadow-sm font-mono text-sm">
+                                                <button @click="showPwd.codex2api = !showPwd.codex2api" class="absolute right-4 top-1/2 -translate-y-1/2 text-lg text-slate-400 hover:text-amber-600 focus:outline-none transition-transform hover:scale-110">
+                                                    {{ showPwd.codex2api ? '👁️' : '🙈' }}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-span-1 lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-6">
+                                        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-amber-300 transition-colors">
+                                            <label class="block text-[11px] text-slate-500 font-black mb-2 uppercase tracking-wider">推送来源标识</label>
+                                            <input type="text" v-model.trim="config.codex2api_mode.push_source" class="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-700 font-mono rounded-lg py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-colors shadow-sm" placeholder="register-oss">
+                                        </div>
+                                        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-amber-300 transition-colors">
+                                            <label class="block text-[11px] text-slate-500 font-black mb-2 uppercase tracking-wider">云端操作并发</label>
+                                            <input type="number" min="1" v-model.number="config.codex2api_mode.threads" class="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-700 font-bold rounded-lg py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-colors shadow-sm text-center">
+                                        </div>
+                                        <div class="md:col-span-2 bg-amber-50/70 p-5 rounded-2xl border border-amber-200 shadow-sm">
+                                            <h4 class="text-sm md:text-base font-black text-amber-900 flex items-center gap-2 mb-3 uppercase tracking-widest">
+                                                <span>ℹ️</span> 接入说明
+                                            </h4>
+                                            <p class="text-sm text-amber-900/90 leading-7 font-medium">
+                                                开启后，本地账号库支持单个/批量推送到你的 Codex2API 实例，云端库存页也会新增 Codex2API 远端账号列表、测活、锁定/解锁和删除操作。
+                                            </p>
                                         </div>
                                     </div>
                                 </div>

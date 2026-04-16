@@ -265,6 +265,13 @@ sub2api_mode:
   enable_ws_mode: true
   test_model: "gpt-5.2"
 
+codex2api_mode:
+  enable: false
+  api_url:
+  admin_key:
+  push_source: "register-oss"
+  threads: 10
+
 hero_sms:
   enabled: false
   api_key: 

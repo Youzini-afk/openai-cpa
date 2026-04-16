@@ -19,6 +19,7 @@ from cloudflare import Cloudflare
 from utils import core_engine, db_manager
 from utils.config import reload_all_configs
 from utils.embedded_mihomo import get_embedded_mihomo_manager
+from utils.integrations.codex2api_client import Codex2APIClient
 from utils.integrations.sub2api_client import Sub2APIClient
 from utils.integrations.tg_notifier import send_tg_msg_async
 from utils.email_providers.gmail_oauth_handler import GmailOAuthHandler
@@ -152,6 +153,55 @@ def ensure_proxy_config_defaults(config_data: dict) -> dict:
             return int(str(value).strip())
         except Exception:
             return default
+
+    if "cpa_mode" not in config_data or not isinstance(config_data.get("cpa_mode"), dict):
+        config_data["cpa_mode"] = {}
+    cpa_mode = config_data["cpa_mode"]
+    cpa_mode.setdefault("enable", False)
+    cpa_mode.setdefault("auto_check", True)
+    cpa_mode.setdefault("save_to_local", True)
+    cpa_mode.setdefault("api_url", "")
+    cpa_mode.setdefault("api_token", "")
+    cpa_mode.setdefault("min_accounts_threshold", 30)
+    cpa_mode.setdefault("batch_reg_count", 1)
+    cpa_mode.setdefault("min_remaining_weekly_percent", 80)
+    cpa_mode.setdefault("remove_on_limit_reached", False)
+    cpa_mode.setdefault("remove_dead_accounts", False)
+    cpa_mode.setdefault("enable_token_revive", False)
+    cpa_mode.setdefault("check_interval_minutes", 60)
+    cpa_mode.setdefault("threads", 10)
+
+    if "sub2api_mode" not in config_data or not isinstance(config_data.get("sub2api_mode"), dict):
+        config_data["sub2api_mode"] = {}
+    sub2api_mode = config_data["sub2api_mode"]
+    sub2api_mode.setdefault("enable", False)
+    sub2api_mode.setdefault("auto_check", True)
+    sub2api_mode.setdefault("save_to_local", True)
+    sub2api_mode.setdefault("api_url", "")
+    sub2api_mode.setdefault("api_key", "")
+    sub2api_mode.setdefault("min_accounts_threshold", 20)
+    sub2api_mode.setdefault("batch_reg_count", 1)
+    sub2api_mode.setdefault("remove_on_limit_reached", True)
+    sub2api_mode.setdefault("remove_dead_accounts", True)
+    sub2api_mode.setdefault("enable_token_revive", False)
+    sub2api_mode.setdefault("check_interval_minutes", 60)
+    sub2api_mode.setdefault("threads", 10)
+    sub2api_mode.setdefault("account_concurrency", 10)
+    sub2api_mode.setdefault("account_load_factor", 10)
+    sub2api_mode.setdefault("account_priority", 1)
+    sub2api_mode.setdefault("account_rate_multiplier", 1.0)
+    sub2api_mode.setdefault("account_group_ids", "")
+    sub2api_mode.setdefault("enable_ws_mode", True)
+    sub2api_mode.setdefault("test_model", "GPT-5.2")
+
+    if "codex2api_mode" not in config_data or not isinstance(config_data.get("codex2api_mode"), dict):
+        config_data["codex2api_mode"] = {}
+    codex2api_mode = config_data["codex2api_mode"]
+    codex2api_mode.setdefault("enable", False)
+    codex2api_mode.setdefault("api_url", "")
+    codex2api_mode.setdefault("admin_key", "")
+    codex2api_mode.setdefault("push_source", "register-oss")
+    codex2api_mode.setdefault("threads", 10)
 
     if "qg_dynamic_proxy" not in config_data or not isinstance(config_data.get("qg_dynamic_proxy"), dict):
         config_data["qg_dynamic_proxy"] = {}
@@ -328,6 +378,46 @@ def parse_cpa_usage_to_details(raw_usage: dict) -> dict:
     details["cpa_used_percent"] = 0.0;
     details["cpa_plan_type"] = "未知"
     return details
+
+
+def normalize_cloud_time(raw_time: Any) -> str:
+    raw = str(raw_time or "").strip()
+    if not raw:
+        return "-"
+    try:
+        return raw.split(".")[0].replace("T", " ")
+    except Exception:
+        return raw
+
+
+def map_codex2api_status(item: dict) -> str:
+    if bool(item.get("locked")):
+        return "disabled"
+
+    raw_status = str(item.get("status") or "").strip().lower()
+    if raw_status in ("", "active", "ready", "ok"):
+        return "active"
+    return "dead"
+
+
+def build_codex2api_details(item: dict) -> dict:
+    def as_percent(value: Any) -> float:
+        try:
+            return round(float(value or 0), 1)
+        except Exception:
+            return 0.0
+
+    return {
+        "plan_type": item.get("plan_type", "未知"),
+        "health_tier": item.get("health_tier", ""),
+        "proxy_url": item.get("proxy_url", ""),
+        "at_only": bool(item.get("at_only")),
+        "locked": bool(item.get("locked")),
+        "codex_5h_used_percent": as_percent(item.get("usage_percent_5h")),
+        "codex_7d_used_percent": as_percent(item.get("usage_percent_7d")),
+        "codex_5h_reset_at": item.get("reset_5h_at", ""),
+        "codex_7d_reset_at": item.get("reset_7d_at", ""),
+    }
 
 @router.get("/")
 async def get_dashboard():
@@ -861,6 +951,21 @@ def account_action(data: dict, token: str = Depends(verify_token)):
             success, resp = client.add_account(token_data)
             return {"status": "success", "message": f"账号 {email} 已同步至 Sub2API！"} if success else {"status": "error",
                                                                                                   "message": f"Sub2API 推送失败: {resp}"}
+        elif action == "push_codex2api":
+            if not getattr(core_engine.cfg, 'ENABLE_CODEX2API_MODE', False):
+                return {"status": "error", "message": "🚫 推送失败：未开启 Codex2API 模式！"}
+            client = Codex2APIClient(
+                api_url=getattr(core_engine.cfg, 'CODEX2API_URL', ''),
+                admin_key=getattr(core_engine.cfg, 'CODEX2API_ADMIN_KEY', ''),
+            )
+            push_payload = dict(token_data or {})
+            push_payload["source"] = config.get("codex2api_mode", {}).get("push_source", "register-oss")
+            success, resp = client.push_account(push_payload)
+            return {"status": "success", "message": f"账号 {email} 已同步至 Codex2API！"} if success else {
+                "status": "error",
+                "message": f"Codex2API 推送失败: {resp}",
+            }
+        return {"status": "error", "message": f"不支持的操作: {action}"}
     except Exception as e:
         return {"status": "error", "message": f"后端推送异常: {str(e)}"}
 
@@ -892,7 +997,7 @@ async def export_sub2api_accounts(req: ExportReq, token: str = Depends(verify_to
 
 
 @router.get("/api/cloud/accounts")
-def get_cloud_accounts(types: str = "sub2api,cpa", page: int = Query(1), page_size: int = Query(50),
+def get_cloud_accounts(types: str = "sub2api,cpa,codex2api", page: int = Query(1), page_size: int = Query(50),
                        token: str = Depends(verify_token)):
     type_list = types.split(",")
     combined_data = []
@@ -902,22 +1007,30 @@ def get_cloud_accounts(types: str = "sub2api,cpa", page: int = Query(1), page_si
             success, raw_sub2_data = client.get_all_accounts()
             if success:
                 for item in raw_sub2_data:
-                    raw_time = item.get("updated_at", "-")
-                    if raw_time != "-":
-                        try:
-                            raw_time = raw_time.split(".")[0].replace("T", " ")
-                        except:
-                            pass
                     extra = item.get("extra", {})
                     combined_data.append({
                         "id": str(item.get("id", "")), "account_type": "sub2api",
                         "credential": item.get("name", "未知账号"),
                         "status": "disabled" if item.get("status") == "inactive" else (
                             "active" if item.get("status") == "active" else "dead"),
-                        "last_check": raw_time,
+                        "last_check": normalize_cloud_time(item.get("updated_at", "-")),
                         "details": {"plan_type": item.get("credentials", {}).get("plan_type", "未知"),
                                     "codex_5h_used_percent": extra.get("codex_5h_used_percent", 0),
                                     "codex_7d_used_percent": extra.get("codex_7d_used_percent", 0)}
+                    })
+
+        if "codex2api" in type_list and getattr(cfg, 'CODEX2API_URL', None) and getattr(cfg, 'CODEX2API_ADMIN_KEY', None):
+            client = Codex2APIClient(api_url=cfg.CODEX2API_URL, admin_key=cfg.CODEX2API_ADMIN_KEY)
+            success, raw_codex_data = client.get_all_accounts()
+            if success:
+                for item in raw_codex_data:
+                    combined_data.append({
+                        "id": str(item.get("id", "")),
+                        "account_type": "codex2api",
+                        "credential": item.get("email") or item.get("name") or f"account-{item.get('id', '')}",
+                        "status": map_codex2api_status(item),
+                        "last_check": normalize_cloud_time(item.get("updated_at") or item.get("last_used_at") or "-"),
+                        "details": build_codex2api_details(item),
                     })
 
         if "cpa" in type_list and getattr(cfg, 'CPA_API_URL', None) and getattr(cfg, 'CPA_API_TOKEN', None):
@@ -950,6 +1063,9 @@ def process_cloud_action(req: CloudActionReq, token: str = Depends(verify_token)
                                                                                                 None) and getattr(cfg,
                                                                                                                   'SUB2API_KEY',
                                                                                                                   None) else None
+    codex2api_client = Codex2APIClient(api_url=cfg.CODEX2API_URL, admin_key=cfg.CODEX2API_ADMIN_KEY) if getattr(
+        cfg, 'CODEX2API_URL', None
+    ) and getattr(cfg, 'CODEX2API_ADMIN_KEY', None) else None
 
     cpa_files_map = {}
     if any(a.type == "cpa" for a in req.accounts) and req.action == "check" and getattr(cfg, 'CPA_API_URL', None):
@@ -963,6 +1079,7 @@ def process_cloud_action(req: CloudActionReq, token: str = Depends(verify_token)
 
     def _worker(acc: CloudAccountItem):
         is_success, details = False, None
+        cache_key = f"{acc.type}:{acc.id}"
         try:
             if acc.type == "sub2api" and sub2api_client:
                 if req.action == "check":
@@ -973,6 +1090,17 @@ def process_cloud_action(req: CloudActionReq, token: str = Depends(verify_token)
                     is_success = sub2api_client.set_account_status(acc.id, disabled=(req.action == "disable"))
                 elif req.action == "delete":
                     is_success, _ = sub2api_client.delete_account(acc.id)
+
+            elif acc.type == "codex2api" and codex2api_client:
+                if req.action == "check":
+                    result, _ = codex2api_client.test_account(acc.id)
+                    is_success = (result == "ok")
+                    if not is_success:
+                        codex2api_client.set_account_status(acc.id, disabled=True)
+                elif req.action in ["enable", "disable"]:
+                    is_success = codex2api_client.set_account_status(acc.id, disabled=(req.action == "disable"))
+                elif req.action == "delete":
+                    is_success, _ = codex2api_client.delete_account(acc.id)
 
             elif acc.type == "cpa" and getattr(cfg, 'CPA_API_URL', None):
                 if req.action == "check":
@@ -991,13 +1119,15 @@ def process_cloud_action(req: CloudActionReq, token: str = Depends(verify_token)
                                  200, 204)
         except:
             pass
-        return (is_success, acc.id, details)
+        return (is_success, cache_key, details)
 
     target_threads = 5
     if any(a.type == "cpa" for a in req.accounts): target_threads = max(target_threads, int(
         getattr(cfg, '_c', {}).get('cpa_mode', {}).get('threads', 10)))
     if any(a.type == "sub2api" for a in req.accounts): target_threads = max(target_threads, int(
         getattr(cfg, '_c', {}).get('sub2api_mode', {}).get('threads', 10)))
+    if any(a.type == "codex2api" for a in req.accounts): target_threads = max(target_threads, int(
+        getattr(cfg, '_c', {}).get('codex2api_mode', {}).get('threads', 10)))
 
     with ThreadPoolExecutor(max_workers=max(1, min(target_threads, 50))) as executor:
         for is_success, acc_id, details in executor.map(_worker, req.accounts):

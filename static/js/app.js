@@ -3,7 +3,7 @@ const { createApp } = Vue;
 createApp({
     data() {
         return {
-            appVersion: 'v10.1.3',
+            appVersion: 'v10.1.4',
             isLoggedIn: !!localStorage.getItem('auth_token'),
             loginPassword: '',
             currentTab: window.location.hash.replace('#', '') || 'console',
@@ -71,12 +71,12 @@ createApp({
             showPwd: {
                 login: false, web: false, cf: false, imap: false, 
                 free_token: false, free_pass: false,
-                cm: false, mc: false, clash: false, cpa: false, sub2api: false,
+                cm: false, mc: false, clash: false, cpa: false, sub2api: false, codex2api: false,
                 cf_key: false, cf_modal_key: false,
                 mail_domains: true, cf_email: true, gpt_base: true, imap_user: true,
                 free_url: true, cm_url: true, cm_email: true, mc_base: true,
                 ai_base: true, cluster_url: true, proxy: true, clash_api: true,
-                clash_test: true, tg_token: false, tg_chatid: false, cpa_url: true, sub_url: true,
+                clash_test: true, tg_token: false, tg_chatid: false, cpa_url: true, sub_url: true, codex_url: true,
                 cluster_secret: false, hero_key: false, duck_token: false, duck_cookie: false,
                 luckmail: false, qg_pwd: false, qg_proxy: false,
                 temporam: false,
@@ -108,7 +108,7 @@ createApp({
             isLoadingSub2APIGroups: false,
             cloudAccounts: [],
             selectedCloud: [],
-            cloudFilters: ['sub2api', 'cpa'],
+            cloudFilters: ['sub2api', 'cpa', 'codex2api'],
             showCloudPlaintext: false,
             cloudPage: 1,
             cloudPageSize: 10,
@@ -356,6 +356,15 @@ createApp({
             try {
                 const res = await this.authFetch('/api/config');
                 this.config = await res.json();
+                if (!this.config.cpa_mode) {
+                    this.config.cpa_mode = {};
+                }
+                if (!this.config.sub2api_mode) {
+                    this.config.sub2api_mode = {};
+                }
+                if (!this.config.codex2api_mode) {
+                    this.config.codex2api_mode = {};
+                }
                 if (!this.config.tg_bot) {
                     this.config.tg_bot = { enable: false, token: '', chat_id: '' };
                 }
@@ -366,6 +375,15 @@ createApp({
                         client_id: '',
                         refresh_token: ''
                     };
+                }
+                if (this.config.cpa_mode.enable === undefined) {
+                    this.config.cpa_mode.enable = false;
+                }
+                if (this.config.cpa_mode.auto_check === undefined) {
+                    this.config.cpa_mode.auto_check = true;
+                }
+                if (this.config.cpa_mode.save_to_local === undefined) {
+                    this.config.cpa_mode.save_to_local = true;
                 }
                 if (this.config.sub2api_mode.test_model === undefined) {
                     this.config.sub2api_mode.test_model = 'GPT-5.2';
@@ -391,9 +409,6 @@ createApp({
 				if (!this.config.sub_domain_level) {
                     this.config.sub_domain_level = 1;
                 }
-                if (!this.config.sub2api_mode) {
-                    this.config.sub2api_mode = {};
-                }
                 if (this.config.sub2api_mode.account_concurrency === undefined) {
                     this.config.sub2api_mode.account_concurrency = 10;
                 }
@@ -411,6 +426,21 @@ createApp({
                 }
                 if (this.config.sub2api_mode.enable_ws_mode === undefined) {
                     this.config.sub2api_mode.enable_ws_mode = true;
+                }
+                if (this.config.codex2api_mode.enable === undefined) {
+                    this.config.codex2api_mode.enable = false;
+                }
+                if (this.config.codex2api_mode.api_url === undefined) {
+                    this.config.codex2api_mode.api_url = '';
+                }
+                if (this.config.codex2api_mode.admin_key === undefined) {
+                    this.config.codex2api_mode.admin_key = '';
+                }
+                if (this.config.codex2api_mode.push_source === undefined) {
+                    this.config.codex2api_mode.push_source = 'register-oss';
+                }
+                if (this.config.codex2api_mode.threads === undefined) {
+                    this.config.codex2api_mode.threads = 10;
                 }
                 if(this.config.clash_proxy_pool && Array.isArray(this.config.clash_proxy_pool.blacklist)) {
                     this.blacklistStr = this.config.clash_proxy_pool.blacklist.join('\n');
@@ -945,9 +975,35 @@ createApp({
             this.showToast(`批量推送完毕！`, "success");
             this.selectedAccounts = []; 
         },
+        async bulkPushCodex2API() {
+            if (!this.config.codex2api_mode.enable) {
+                this.showToast("🚫 请先开启 Codex2API 模式并填写参数", "warning"); return;
+            }
+            if (this.selectedAccounts.length === 0) return;
+            const confirmed = await this.customConfirm(`确定推送到 Codex2API？`);
+            if (!confirmed) return;
+            this.currentTab = 'console';
+            for (let i = 0; i < this.selectedAccounts.length; i++) {
+                const acc = this.selectedAccounts[i];
+                try {
+                    await this.authFetch('/api/account/action', {
+                        method: 'POST', body: JSON.stringify({ email: acc.email, action: 'push_codex2api' })
+                    });
+                } catch (e) {}
+                await new Promise(r => setTimeout(r, 500));
+            }
+            this.showToast(`批量推送完毕！`, "success");
+            this.selectedAccounts = [];
+        },
         async triggerAccountAction(account, action) {
             if (action === 'push' && !this.config.cpa_mode.enable) {
                 this.showToast("🚫 无法推送：请先配置 CPA 参数！", "warning"); return;
+            }
+            if (action === 'push_sub2api' && !this.config.sub2api_mode.enable) {
+                this.showToast("🚫 无法推送：请先配置 Sub2API 参数！", "warning"); return;
+            }
+            if (action === 'push_codex2api' && !this.config.codex2api_mode.enable) {
+                this.showToast("🚫 无法推送：请先配置 Codex2API 参数！", "warning"); return;
             }
             this.currentTab = 'console';
             try {
@@ -1561,6 +1617,12 @@ createApp({
                 this.showToast('导出异常，请检查 JSZip 是否加载', 'error');
             }
         },
+        cloudCacheKey(typeOrAcc, idValue = null) {
+            if (typeof typeOrAcc === 'object' && typeOrAcc !== null) {
+                return `${String(typeOrAcc.account_type || typeOrAcc.type || '')}:${String(typeOrAcc.id || '')}`;
+            }
+            return `${String(typeOrAcc || '')}:${String(idValue || '')}`;
+        },
 
         async fetchCloudAccounts() {
             if (this.cloudFilters.length === 0) {
@@ -1575,8 +1637,8 @@ createApp({
                 if(data.status === 'success') {
                     this.cloudAccounts = (data.data || []).map(acc => ({
                         ...acc,
-                        last_check: this.localCheckTimes[acc.id] || acc.last_check || '-',
-                        details: this.localCloudDetails[acc.id] || acc.details || {},
+                        last_check: this.localCheckTimes[this.cloudCacheKey(acc)] || acc.last_check || '-',
+                        details: this.localCloudDetails[this.cloudCacheKey(acc)] || acc.details || {},
                         _loading: null
                     }));
                     this.cloudTotal = data.total || 0;
@@ -1603,16 +1665,17 @@ createApp({
                     body: JSON.stringify({ accounts: [{id: String(acc.id), type: acc.account_type}], action: action })
                 });
                 const result = await res.json();
-                if (result.updated_details && result.updated_details[acc.id]) {
-                    acc.details = result.updated_details[acc.id];
-                    this.localCloudDetails[acc.id] = result.updated_details[acc.id];
+                const cacheKey = this.cloudCacheKey(acc);
+                if (result.updated_details && result.updated_details[cacheKey]) {
+                    acc.details = result.updated_details[cacheKey];
+                    this.localCloudDetails[cacheKey] = result.updated_details[cacheKey];
                 }
                 if (action === 'enable' && result.status !== 'error') acc.status = 'active';
                 if (action === 'disable' && result.status !== 'error') acc.status = 'disabled';
 
                 if (action === 'check') {
                     const now = new Date().toLocaleString('zh-CN', { hour12: false });
-                    this.localCheckTimes[acc.id] = now;
+                    this.localCheckTimes[cacheKey] = now;
                     acc.last_check = now;
 
                     if (result.status === 'warning') {
@@ -1655,8 +1718,9 @@ createApp({
                         const targetAcc = this.cloudAccounts.find(a => String(a.id) === String(selected.id) && a.account_type === selected.type);
                         if (result.updated_details) {
                             this.selectedCloud.forEach(selected => {
-                                if (result.updated_details[selected.id]) {
-                                    this.localCloudDetails[selected.id] = result.updated_details[selected.id]; // 存入缓存
+                                const cacheKey = this.cloudCacheKey(selected.type, selected.id);
+                                if (result.updated_details[cacheKey]) {
+                                    this.localCloudDetails[cacheKey] = result.updated_details[cacheKey];
                                 }
                             });
                         }
@@ -1664,7 +1728,7 @@ createApp({
                 }
                 if (action === 'check') {
                     const now = new Date().toLocaleString('zh-CN', { hour12: false });
-                    this.selectedCloud.forEach(c => { this.localCheckTimes[c.id] = now; });
+                    this.selectedCloud.forEach(c => { this.localCheckTimes[this.cloudCacheKey(c.type, c.id)] = now; });
                 }
 
                 this.showToast(result.message, result.status);
@@ -1685,7 +1749,7 @@ createApp({
         },
         viewCloudDetails(acc) {
             if (!acc.details || Object.keys(acc.details).length === 0) {
-                this.showToast("CPA 账号暂无用量缓存，请先点击【测活】拉取！", "warning");
+                this.showToast("当前远端账号暂无用量缓存，请先点击【测活】拉取！", "warning");
                 return;
             }
             this.currentCloudDetail = acc;
