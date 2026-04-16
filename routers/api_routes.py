@@ -951,8 +951,14 @@ def get_cf_global_status(main_domain: str, token: str = Depends(verify_token)):
         return {"status": "error", "message": f"状态同步失败: {str(e)}"}
 
 @router.get("/api/accounts")
-async def get_accounts(page: int = Query(1), page_size: int = Query(50), token: str = Depends(verify_token)):
-    result = db_manager.get_accounts_page(page, page_size)
+async def get_accounts(
+    page: int = Query(1),
+    page_size: int = Query(50),
+    push_platform: str = Query("all"),
+    push_state: str = Query("all"),
+    token: str = Depends(verify_token),
+):
+    result = db_manager.get_accounts_page(page, page_size, push_platform=push_platform, push_state=push_state)
     return {"status": "success", "data": result["data"], "total": result["total"], "page": page, "page_size": page_size}
 
 
@@ -984,6 +990,8 @@ def account_action(data: dict, token: str = Depends(verify_token)):
             success, msg = core_engine.upload_to_cpa_integrated(token_data,
                                                                 config.get("cpa_mode", {}).get("api_url", ""),
                                                                 config.get("cpa_mode", {}).get("api_token", ""))
+            if success:
+                db_manager.mark_account_pushed(email, "cpa")
             return {"status": "success", "message": f"账号 {email} 已成功推送到 CPA！"} if success else {"status": "error",
                                                                                                 "message": f"CPA 推送失败: {msg}"}
 
@@ -993,6 +1001,8 @@ def account_action(data: dict, token: str = Depends(verify_token)):
             client = Sub2APIClient(api_url=getattr(core_engine.cfg, 'SUB2API_URL', ''),
                                    api_key=getattr(core_engine.cfg, 'SUB2API_KEY', ''))
             success, resp = client.add_account(token_data)
+            if success:
+                db_manager.mark_account_pushed(email, "sub2api")
             return {"status": "success", "message": f"账号 {email} 已同步至 Sub2API！"} if success else {"status": "error",
                                                                                                   "message": f"Sub2API 推送失败: {resp}"}
         elif action == "push_codex2api":
@@ -1005,6 +1015,8 @@ def account_action(data: dict, token: str = Depends(verify_token)):
             push_payload = dict(token_data or {})
             push_payload["source"] = config.get("codex2api_mode", {}).get("push_source", "register-oss")
             success, resp = client.push_account(push_payload)
+            if success:
+                db_manager.mark_account_pushed(email, "codex2api")
             return {"status": "success", "message": f"账号 {email} 已同步至 Codex2API！"} if success else {
                 "status": "error",
                 "message": f"Codex2API 推送失败: {resp}",

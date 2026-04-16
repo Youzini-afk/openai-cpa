@@ -3,7 +3,7 @@ const { createApp } = Vue;
 createApp({
     data() {
         return {
-            appVersion: 'v10.1.6',
+            appVersion: 'v10.1.7',
             isLoggedIn: !!localStorage.getItem('auth_token'),
             loginPassword: '',
             currentTab: window.location.hash.replace('#', '') || 'console',
@@ -56,6 +56,8 @@ createApp({
             warpListStr: "",
             accounts: [],
             selectedAccounts: [],
+            accountPushPlatformFilter: 'all',
+            accountPushStateFilter: 'all',
 			currentPage: 1,
             pageSize: 10,
             totalAccounts: 0,
@@ -646,7 +648,13 @@ createApp({
                 this.currentPage = 1;
             }
             try {
-                const res = await this.authFetch(`/api/accounts?page=${this.currentPage}&page_size=${this.pageSize}`);
+                const params = new URLSearchParams({
+                    page: String(this.currentPage),
+                    page_size: String(this.pageSize),
+                    push_platform: String(this.accountPushPlatformFilter || 'all'),
+                    push_state: String(this.accountPushStateFilter || 'all'),
+                });
+                const res = await this.authFetch(`/api/accounts?${params.toString()}`);
                 const data = await res.json();
                 if(data.status === 'success') {
                     this.accounts = data.data ? data.data : data;
@@ -662,6 +670,12 @@ createApp({
             } catch (e) {
                 console.error("获取账号列表失败:", e);
             }
+        },
+        applyAccountPushFilters(platform = null, state = null) {
+            if (platform !== null) this.accountPushPlatformFilter = platform;
+            if (state !== null) this.accountPushStateFilter = state;
+            this.currentPage = 1;
+            this.fetchAccounts(false);
         },
 		changePage(newPage) {
             if (newPage < 1 || newPage > this.totalPages) return;
@@ -966,6 +980,7 @@ createApp({
             }
             this.showToast(`批量推送完毕！`, "success");
             this.selectedAccounts = []; 
+            this.fetchAccounts(false);
         },
 		async bulkPushSub2API() {
             if (!this.config.sub2api_mode.enable) {
@@ -986,6 +1001,7 @@ createApp({
             }
             this.showToast(`批量推送完毕！`, "success");
             this.selectedAccounts = []; 
+            this.fetchAccounts(false);
         },
         async bulkPushCodex2API() {
             if (!this.config.codex2api_mode.enable) {
@@ -1006,6 +1022,7 @@ createApp({
             }
             this.showToast(`批量推送完毕！`, "success");
             this.selectedAccounts = [];
+            this.fetchAccounts(false);
         },
         async triggerAccountAction(account, action) {
             if (action === 'push' && !this.config.cpa_mode.enable) {
@@ -1024,6 +1041,9 @@ createApp({
                 });
                 const result = await res.json();
                 this.showToast(result.message, result.status);
+                if (result.status === 'success') {
+                    this.fetchAccounts(false);
+                }
             } catch (e) {}
         },
         async clearLogs() {

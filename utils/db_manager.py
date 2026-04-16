@@ -7,6 +7,12 @@ from typing import Any
 os.makedirs("data", exist_ok=True)
 DB_PATH = "data/data.db"
 
+ACCOUNT_PUSH_COLUMNS = {
+    "cpa": "pushed_cpa_at",
+    "sub2api": "pushed_sub2api_at",
+    "codex2api": "pushed_codex2api_at",
+}
+
 def ts() -> str:
     return datetime.now().strftime("%H:%M:%S")
 
@@ -22,7 +28,10 @@ def init_db():
                 email TEXT UNIQUE,
                 password TEXT,
                 token_data TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                pushed_cpa_at TIMESTAMP,
+                pushed_sub2api_at TIMESTAMP,
+                pushed_codex2api_at TIMESTAMP
             )
         ''')
         c.execute('''
@@ -45,6 +54,18 @@ def init_db():
         try:
             c.execute('ALTER TABLE local_mailboxes ADD COLUMN fission_count INTEGER DEFAULT 0;')
             c.execute('ALTER TABLE local_mailboxes ADD COLUMN retry_master INTEGER DEFAULT 0;')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute('ALTER TABLE accounts ADD COLUMN pushed_cpa_at TIMESTAMP;')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute('ALTER TABLE accounts ADD COLUMN pushed_sub2api_at TIMESTAMP;')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute('ALTER TABLE accounts ADD COLUMN pushed_codex2api_at TIMESTAMP;')
         except sqlite3.OperationalError:
             pass
         conn.commit()
@@ -128,19 +149,76 @@ def delete_accounts_by_emails(emails: list) -> bool:
         print(f"[{ts()}] [ERROR] 数据库批量删除账号异常: {e}")
         return False
 
-def get_accounts_page(page: int = 1, page_size: int = 50) -> dict:
+def _build_account_push_filter(push_platform: str = "all", push_state: str = "all") -> tuple[str, list]:
+    platform = str(push_platform or "all").strip().lower()
+    state = str(push_state or "all").strip().lower()
+    if platform not in {"all", "cpa", "sub2api", "codex2api"}:
+        platform = "all"
+    if state not in {"all", "pushed", "unpushed"}:
+        state = "all"
+
+    if state == "all":
+        return "", []
+
+    if platform == "all":
+        columns = list(ACCOUNT_PUSH_COLUMNS.values())
+        if state == "pushed":
+            return "(" + " OR ".join(f"{column} IS NOT NULL" for column in columns) + ")", []
+        return "(" + " AND ".join(f"{column} IS NULL" for column in columns) + ")", []
+
+    column = ACCOUNT_PUSH_COLUMNS.get(platform)
+    if not column:
+        return "", []
+    return (f"{column} IS NOT NULL", []) if state == "pushed" else (f"{column} IS NULL", [])
+
+
+def mark_account_pushed(email: str, platform: str) -> bool:
+    column = ACCOUNT_PUSH_COLUMNS.get(str(platform or "").strip().lower())
+    if not column or not email:
+        return False
+    try:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.execute(f"UPDATE accounts SET {column} = CURRENT_TIMESTAMP WHERE email = ?", (email,))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"[{ts()}] [ERROR] 更新推送标记失败: {e}")
+        return False
+
+
+def get_accounts_page(page: int = 1, page_size: int = 50, push_platform: str = "all", push_state: str = "all") -> dict:
     """带分页的账号拉取功能"""
     try:
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             c = conn.cursor()
-            c.execute("SELECT COUNT(1) FROM accounts")
-            total = c.fetchone()[0]
+            where_sql, params = _build_account_push_filter(push_platform, push_state)
+            count_sql = "SELECT COUNT(1) FROM accounts"
+            if where_sql:
+                count_sql += f" WHERE {where_sql}"
+            c.execute(count_sql, params)
+            total = c.fetchone()[0] or 0
 
             offset = (page - 1) * page_size
-            c.execute("SELECT email, password, created_at FROM accounts ORDER BY id DESC LIMIT ? OFFSET ?", (page_size, offset))
+            query_sql = """
+                SELECT email, password, created_at, pushed_cpa_at, pushed_sub2api_at, pushed_codex2api_at
+                FROM accounts
+            """
+            query_params = list(params)
+            if where_sql:
+                query_sql += f" WHERE {where_sql}"
+            query_sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+            query_params.extend([page_size, offset])
+            c.execute(query_sql, query_params)
             rows = c.fetchall()
             
-            data = [{"email": r[0], "password": r[1], "created_at": r[2]} for r in rows]
+            data = [{
+                "email": r[0],
+                "password": r[1],
+                "created_at": r[2],
+                "pushed_cpa_at": r[3],
+                "pushed_sub2api_at": r[4],
+                "pushed_codex2api_at": r[5],
+            } for r in rows]
             return {"total": total, "data": data}
     except Exception as e:
         print(f"[{ts()}] [ERROR] 分页获取账号列表失败: {e}")
