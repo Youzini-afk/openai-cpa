@@ -15,6 +15,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, module="trio")
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 from utils import core_engine, db_manager
@@ -51,6 +52,16 @@ app.add_middleware(
 db_manager.init_db()
 
 app.include_router(api_routes.router)
+
+@app.get("/healthz", include_in_schema=False)
+async def healthz():
+    data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    return JSONResponse({
+        "status": "ok",
+        "running": engine.is_running(),
+        "data_dir": data_dir,
+        "data_dir_exists": os.path.isdir(data_dir),
+    })
 
 class DummyArgs:
     def __init__(self, proxy=None, once=False):
@@ -187,14 +198,25 @@ threading.Thread(target=_worker_push_thread, daemon=True).start()
 if __name__ == "__main__":
     try: reload_all_configs()
     except: pass
+    host = os.getenv("HOST", "0.0.0.0").strip() or "0.0.0.0"
+    try:
+        port = int(str(os.getenv("PORT", "8000")).strip() or "8000")
+    except ValueError:
+        port = 8000
+    web_password = str(
+        os.getenv("WEB_PASSWORD")
+        or os.getenv("WENFXL_WEB_PASSWORD")
+        or "admin"
+    ).strip() or "admin"
+
     print("=" * 65)
     print(f"[{core_engine.ts()}] [系统] OpenAI 全链路自动化生产与多维资源中转调度平台")
     print(f"[{core_engine.ts()}] [系统] Author: (wenfxl)轩灵")
     print(f"[{core_engine.ts()}] [系统] 如果遇到问题请更换域名解决，目前eu.cc，xyz，cn，edu.cc等常见域名均不可用，请更换为冷门域名")
     print("-" * 65)
     print(f"[{core_engine.ts()}] [系统] Web 控制台已准备就绪，等待下发指令...")
-    sys.__stdout__.write(f"[{core_engine.ts()}] [系统] 控制台地址：http://127.0.0.1:8000 \n")
-    sys.__stdout__.write(f"[{core_engine.ts()}] [系统] 控制台初始密码：admin \n")
+    sys.__stdout__.write(f"[{core_engine.ts()}] [系统] 控制台监听：{host}:{port} \n")
+    sys.__stdout__.write(f"[{core_engine.ts()}] [系统] 控制台初始密码：{web_password} \n")
     sys.__stdout__.write(f"[{core_engine.ts()}] [系统] 结束请猛猛重复按CTRL+C \n")
     sys.__stdout__.flush()
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning", access_log=False, timeout_graceful_shutdown=1)
+    uvicorn.run(app, host=host, port=port, log_level="warning", access_log=False, timeout_graceful_shutdown=1)

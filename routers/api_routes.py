@@ -107,6 +107,13 @@ class UpdateMailboxStatusReq(BaseModel):
 # 辅助函数
 # ==========================================
 def get_web_password():
+    env_password = str(
+        os.getenv("WEB_PASSWORD")
+        or os.getenv("WENFXL_WEB_PASSWORD")
+        or ""
+    ).strip()
+    if env_password:
+        return env_password
     try:
         if os.path.exists(CONFIG_PATH):
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -327,7 +334,7 @@ async def get_config(token: str = Depends(verify_token)):
             config_data = yaml.safe_load(f) or {}
     if isinstance(config_data.get("sub2api_mode"), dict):
         config_data["sub2api_mode"].pop("min_remaining_weekly_percent", None)
-    config_data["web_password"] = config_data.get("web_password", "admin")
+    config_data["web_password"] = get_web_password()
     if "local_microsoft" not in config_data:
         config_data["local_microsoft"] = {
             "enable_fission": False,

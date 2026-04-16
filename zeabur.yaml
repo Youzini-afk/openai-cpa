@@ -1,0 +1,76 @@
+# yaml-language-server: $schema=https://schema.zeabur.app/template.json
+apiVersion: zeabur.com/v1
+kind: Template
+metadata:
+  name: OpenAI CPA
+spec:
+  description: OpenAI CPA Web Console，支持邮箱、仓管、账号库存与自动化任务调度
+  tags:
+    - OpenAI
+    - FastAPI
+    - Automation
+    - Dashboard
+  variables:
+    - key: PASSWORD
+      type: STRING
+      name: 控制台密码
+      description: 首次登录 Web 控制台使用的密码
+  readme: |-
+    # OpenAI CPA (Zeabur)
+
+    这是一个基于 FastAPI 的 Web 控制台项目，Zeabur 部署后会自动创建并持久化 `/app/data`。
+
+    ## 部署后
+    - 访问根路径 `/` 打开控制台
+    - 健康检查路径：`/healthz`
+    - 运行数据、SQLite、配置文件都保存在 `/app/data`
+    - 如果 `/app/data/config.yaml` 不存在，程序会自动用仓库里的 `config.example.yaml` 初始化
+
+    ## 首次使用
+    1. 打开服务域名
+    2. 用 `WEB_PASSWORD` 登录
+    3. 在控制台里保存你的邮箱、代理、仓管等配置
+
+    ## 云端注意事项
+    - Zeabur 上没有本地 Clash / Mihomo 守护进程，`default_proxy`、Clash API 等配置请改成外部可访问地址，或者留空
+    - 需要持久化数据时不要删除 `/app/data` 这个挂载卷
+    - 直接 GitHub 自动部署时主要依赖仓库根目录 `Dockerfile`；`zeabur.yaml` 负责提供模板默认值
+
+  services:
+    - name: openai-cpa
+      template: GIT
+      spec:
+        source:
+          source: GITHUB
+          repo: 1212180038
+          branch: main
+          rootDirectory: /
+        ports:
+          - id: web
+            port: 8000
+            type: HTTP
+        volumes:
+          - id: data
+            dir: /app/data
+        env:
+          HOST:
+            default: "0.0.0.0"
+          PORT:
+            default: "8000"
+          PYTHONUNBUFFERED:
+            default: "1"
+          WEB_PASSWORD:
+            default: ${PASSWORD}
+            expose: true
+        instructions:
+          - title: 控制台入口
+            content: 访问服务根路径 `/`
+          - title: 初始密码
+            content: ${WEB_PASSWORD}
+          - title: 数据目录
+            content: 持久化数据保存在 `/app/data`
+        healthCheck:
+          type: HTTP
+          port: web
+          http:
+            path: /healthz

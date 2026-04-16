@@ -200,6 +200,33 @@ Default Web Console password:
 admin
 ```
 
+## Deploy on Zeabur
+
+This repository is now ready for direct Zeabur deployment with the repo-root `Dockerfile`, plus a matching `zeabur.yaml` template.
+
+Recommended setup on Zeabur:
+
+1. Import the GitHub repo `Youzini-afk/openai-cpa`
+2. Keep the default HTTP port at `8000`
+3. Add a persistent volume mounted to `/app/data`
+4. Set `WEB_PASSWORD` in Zeabur environment variables
+5. Deploy and open `/`
+
+Important notes for cloud deployment:
+- Health check path: `/healthz`
+- Runtime data, SQLite database, and `config.yaml` are stored under `/app/data`
+- If `/app/data/config.yaml` does not exist, the app auto-generates it from `config.example.yaml`
+- Zeabur does not provide a local Clash / Mihomo daemon by default, so `default_proxy`, Clash API, and similar settings must point to externally reachable services or be left empty
+
+Suggested Zeabur environment variables:
+
+```text
+HOST=0.0.0.0
+PORT=8000
+PYTHONUNBUFFERED=1
+WEB_PASSWORD=<your-password>
+```
+
 Recommended workflow:
 The repository includes a ready-to-use `docker-compose.yml` for starting the **Wenfxl Codex Manager Web Console** with persistent config and data mounts.
 - log in to the Web Console

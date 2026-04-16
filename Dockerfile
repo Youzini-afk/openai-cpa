@@ -13,8 +13,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 
 RUN rm -rf utils/auth_core/*.py 2>/dev/null || true
+RUN mkdir -p /app/data
 
 EXPOSE 8000
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    PORT=8000 \
+    HOST=0.0.0.0
 
 CMD ["python", "wfxl_openai_regst.py"]
