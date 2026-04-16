@@ -24,7 +24,6 @@ _global_switch_lock = threading.Lock()
 _last_switch_time = 0
 _qg_short_proxy_lock = threading.Lock()
 _qg_short_proxy_cache = {
-    "effective_proxy": "",
     "server": "",
     "proxy_ip": "",
     "area": "",
@@ -255,13 +254,19 @@ def _fetch_qg_short_proxy_state(config_obj: dict = None, force_refresh: bool = F
     now = time.time()
 
     with _qg_short_proxy_lock:
-        cached_proxy = str(_qg_short_proxy_cache.get("effective_proxy", "") or "").strip()
+        cached_server = str(_qg_short_proxy_cache.get("server", "") or "").strip()
         cached_expires_at = float(_qg_short_proxy_cache.get("expires_at", 0.0) or 0.0)
-        if not force_refresh and cached_proxy and cached_expires_at > now + refresh_before:
+        if not force_refresh and cached_server and cached_expires_at > now + refresh_before:
+            effective_proxy = _compose_qg_short_proxy_url(
+                cached_server,
+                conf.get("auth_username", ""),
+                conf.get("auth_password", ""),
+                mask_password=False,
+            )
             return {
                 "enabled": True,
-                "effective_proxy": cached_proxy,
-                "server": str(_qg_short_proxy_cache.get("server", "") or ""),
+                "effective_proxy": effective_proxy,
+                "server": cached_server,
                 "proxy_ip": str(_qg_short_proxy_cache.get("proxy_ip", "") or ""),
                 "area": str(_qg_short_proxy_cache.get("area", "") or ""),
                 "isp": str(_qg_short_proxy_cache.get("isp", "") or ""),
@@ -342,8 +347,6 @@ def _fetch_qg_short_proxy_state(config_obj: dict = None, force_refresh: bool = F
             )
 
             _qg_short_proxy_cache.update({
-                "effective_proxy": effective_proxy,
-                "masked_proxy": masked_proxy,
                 "server": server,
                 "proxy_ip": proxy_ip,
                 "area": area,
@@ -369,13 +372,19 @@ def _fetch_qg_short_proxy_state(config_obj: dict = None, force_refresh: bool = F
             }
         except Exception as exc:
             error_text = str(exc)
-            cached_grace_ok = cached_proxy and cached_expires_at > now - 30
+            cached_grace_ok = cached_server and cached_expires_at > now - 30
             if cached_grace_ok:
                 _qg_short_proxy_cache["error"] = error_text
+                effective_proxy = _compose_qg_short_proxy_url(
+                    cached_server,
+                    conf.get("auth_username", ""),
+                    conf.get("auth_password", ""),
+                    mask_password=False,
+                )
                 return {
                     "enabled": True,
-                    "effective_proxy": cached_proxy,
-                    "server": str(_qg_short_proxy_cache.get("server", "") or ""),
+                    "effective_proxy": effective_proxy,
+                    "server": cached_server,
                     "proxy_ip": str(_qg_short_proxy_cache.get("proxy_ip", "") or ""),
                     "area": str(_qg_short_proxy_cache.get("area", "") or ""),
                     "isp": str(_qg_short_proxy_cache.get("isp", "") or ""),
@@ -387,8 +396,6 @@ def _fetch_qg_short_proxy_state(config_obj: dict = None, force_refresh: bool = F
                 }
 
             _qg_short_proxy_cache.update({
-                "effective_proxy": "",
-                "masked_proxy": "",
                 "server": "",
                 "proxy_ip": "",
                 "area": "",
