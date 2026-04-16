@@ -1663,6 +1663,14 @@
                                                     <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">提取接口超时秒数</label>
                                                     <input type="number" min="3" v-model.number="config.qg_short_proxy.request_timeout_seconds" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-colors shadow-sm text-sm font-mono" placeholder="10">
                                                 </div>
+                                                <div>
+                                                    <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">连续候选尝试数</label>
+                                                    <input type="number" min="1" v-model.number="config.qg_short_proxy.max_retry_candidates" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-colors shadow-sm text-sm font-mono" placeholder="3">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">单条测活超时秒数</label>
+                                                    <input type="number" min="3" v-model.number="config.qg_short_proxy.probe_timeout_seconds" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-colors shadow-sm text-sm font-mono" placeholder="10">
+                                                </div>
                                             </div>
                                         </div>
                                         <div class="bg-slate-50 rounded-2xl border border-slate-200 p-5 shadow-inner space-y-4">
@@ -1690,6 +1698,15 @@
                                             </div>
                                             <div v-if="proxyStatus?.qg_short_proxy?.error" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700 break-all">
                                                 {{ proxyStatus.qg_short_proxy.error }}
+                                            </div>
+                                            <div class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+                                                最近测活：
+                                                <span v-if="!proxyStatus?.qg_short_proxy?.last_probe_at" class="font-black text-slate-400">未测活</span>
+                                                <span v-else-if="proxyStatus?.qg_short_proxy?.last_probe_ok" class="font-black text-emerald-600">通过</span>
+                                                <span v-else class="font-black text-rose-600">失败</span>
+                                                <span v-if="proxyStatus?.qg_short_proxy?.last_probe_loc"> | 地区 {{ proxyStatus.qg_short_proxy.last_probe_loc }}</span>
+                                                <span v-if="proxyStatus?.qg_short_proxy?.last_probe_elapsed_ms"> | 延迟 {{ proxyStatus.qg_short_proxy.last_probe_elapsed_ms }}ms</span>
+                                                <span v-if="!proxyStatus?.qg_short_proxy?.last_probe_ok && proxyStatus?.qg_short_proxy?.last_probe_error" class="block mt-1 break-all">{{ proxyStatus.qg_short_proxy.last_probe_error }}</span>
                                             </div>
                                             <div class="text-xs text-slate-500 leading-relaxed">
                                                 开启后优先级最高，会覆盖下方基础代理和青果动态隧道代理。适合直接粘贴 `https://share.proxy.qg.net/get?...` 这种提取链接。

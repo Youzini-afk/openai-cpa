@@ -33,6 +33,11 @@ _qg_short_proxy_cache = {
     "error": "",
     "fetched_at": 0.0,
     "expires_at": 0.0,
+    "last_probe_ok": False,
+    "last_probe_error": "",
+    "last_probe_loc": "",
+    "last_probe_elapsed_ms": 0,
+    "last_probe_at": 0.0,
 }
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(CURRENT_DIR)
@@ -232,6 +237,11 @@ def _fetch_qg_short_proxy_state(config_obj: dict = None, force_refresh: bool = F
             "request_id": "",
             "error": "",
             "cached": False,
+            "last_probe_ok": False,
+            "last_probe_error": "",
+            "last_probe_loc": "",
+            "last_probe_elapsed_ms": 0,
+            "last_probe_at": 0.0,
         }
 
     extract_url = conf.get("extract_url", "")
@@ -247,6 +257,11 @@ def _fetch_qg_short_proxy_state(config_obj: dict = None, force_refresh: bool = F
             "request_id": "",
             "error": "未配置提取URL",
             "cached": False,
+            "last_probe_ok": bool(_qg_short_proxy_cache.get("last_probe_ok", False)),
+            "last_probe_error": str(_qg_short_proxy_cache.get("last_probe_error", "") or ""),
+            "last_probe_loc": str(_qg_short_proxy_cache.get("last_probe_loc", "") or ""),
+            "last_probe_elapsed_ms": int(_qg_short_proxy_cache.get("last_probe_elapsed_ms", 0) or 0),
+            "last_probe_at": float(_qg_short_proxy_cache.get("last_probe_at", 0.0) or 0.0),
         }
 
     refresh_before = max(0, _safe_int(conf.get("refresh_before_expire_seconds", 5), 5))
@@ -275,6 +290,11 @@ def _fetch_qg_short_proxy_state(config_obj: dict = None, force_refresh: bool = F
                 "error": str(_qg_short_proxy_cache.get("error", "") or ""),
                 "cached": True,
                 "fetched_at": float(_qg_short_proxy_cache.get("fetched_at", 0.0) or 0.0),
+                "last_probe_ok": bool(_qg_short_proxy_cache.get("last_probe_ok", False)),
+                "last_probe_error": str(_qg_short_proxy_cache.get("last_probe_error", "") or ""),
+                "last_probe_loc": str(_qg_short_proxy_cache.get("last_probe_loc", "") or ""),
+                "last_probe_elapsed_ms": int(_qg_short_proxy_cache.get("last_probe_elapsed_ms", 0) or 0),
+                "last_probe_at": float(_qg_short_proxy_cache.get("last_probe_at", 0.0) or 0.0),
             }
 
         try:
@@ -369,6 +389,11 @@ def _fetch_qg_short_proxy_state(config_obj: dict = None, force_refresh: bool = F
                 "error": "",
                 "cached": False,
                 "fetched_at": now,
+                "last_probe_ok": bool(_qg_short_proxy_cache.get("last_probe_ok", False)),
+                "last_probe_error": str(_qg_short_proxy_cache.get("last_probe_error", "") or ""),
+                "last_probe_loc": str(_qg_short_proxy_cache.get("last_probe_loc", "") or ""),
+                "last_probe_elapsed_ms": int(_qg_short_proxy_cache.get("last_probe_elapsed_ms", 0) or 0),
+                "last_probe_at": float(_qg_short_proxy_cache.get("last_probe_at", 0.0) or 0.0),
             }
         except Exception as exc:
             error_text = str(exc)
@@ -393,6 +418,11 @@ def _fetch_qg_short_proxy_state(config_obj: dict = None, force_refresh: bool = F
                     "error": error_text,
                     "cached": True,
                     "fetched_at": float(_qg_short_proxy_cache.get("fetched_at", 0.0) or 0.0),
+                    "last_probe_ok": bool(_qg_short_proxy_cache.get("last_probe_ok", False)),
+                    "last_probe_error": str(_qg_short_proxy_cache.get("last_probe_error", "") or ""),
+                    "last_probe_loc": str(_qg_short_proxy_cache.get("last_probe_loc", "") or ""),
+                    "last_probe_elapsed_ms": int(_qg_short_proxy_cache.get("last_probe_elapsed_ms", 0) or 0),
+                    "last_probe_at": float(_qg_short_proxy_cache.get("last_probe_at", 0.0) or 0.0),
                 }
 
             _qg_short_proxy_cache.update({
@@ -405,6 +435,11 @@ def _fetch_qg_short_proxy_state(config_obj: dict = None, force_refresh: bool = F
                 "error": error_text,
                 "fetched_at": now,
                 "expires_at": 0.0,
+                "last_probe_ok": False,
+                "last_probe_error": error_text,
+                "last_probe_loc": "",
+                "last_probe_elapsed_ms": 0,
+                "last_probe_at": now,
             })
             return {
                 "enabled": True,
@@ -418,6 +453,11 @@ def _fetch_qg_short_proxy_state(config_obj: dict = None, force_refresh: bool = F
                 "error": error_text,
                 "cached": False,
                 "fetched_at": now,
+                "last_probe_ok": False,
+                "last_probe_error": error_text,
+                "last_probe_loc": "",
+                "last_probe_elapsed_ms": 0,
+                "last_probe_at": now,
             }
 
 
@@ -438,6 +478,155 @@ def build_qg_short_proxy_url(config_obj: dict = None, mask_password: bool = Fals
         conf.get("auth_password", ""),
         mask_password=True,
     )
+
+
+def _probe_proxy_url(proxy_url: str, timeout_seconds: int = 10) -> dict:
+    target_proxy = format_docker_url(proxy_url)
+    proxies = {"http": target_proxy, "https": target_proxy}
+    started = time.time()
+    try:
+        response = std_requests.get("https://cloudflare.com/cdn-cgi/trace", proxies=proxies, timeout=timeout_seconds)
+        elapsed_ms = int((time.time() - started) * 1000)
+        if response.status_code != 200:
+            return {
+                "ok": False,
+                "loc": "",
+                "elapsed_ms": elapsed_ms,
+                "error": f"HTTP {response.status_code}",
+            }
+
+        loc = "UNKNOWN"
+        for line in response.text.split("\n"):
+            if line.startswith("loc="):
+                loc = line.split("=")[1].strip()
+                break
+
+        if loc in ("CN", "HK"):
+            return {
+                "ok": False,
+                "loc": loc,
+                "elapsed_ms": elapsed_ms,
+                "error": f"地区受限 ({loc})",
+            }
+
+        return {
+            "ok": True,
+            "loc": loc,
+            "elapsed_ms": elapsed_ms,
+            "error": "",
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "loc": "",
+            "elapsed_ms": int((time.time() - started) * 1000),
+            "error": str(exc),
+        }
+
+
+def _remember_qg_short_probe(server: str, probe_result: dict) -> None:
+    _qg_short_proxy_cache["last_probe_ok"] = bool(probe_result.get("ok", False))
+    _qg_short_proxy_cache["last_probe_error"] = str(probe_result.get("error", "") or "")
+    _qg_short_proxy_cache["last_probe_loc"] = str(probe_result.get("loc", "") or "")
+    _qg_short_proxy_cache["last_probe_elapsed_ms"] = int(probe_result.get("elapsed_ms", 0) or 0)
+    _qg_short_proxy_cache["last_probe_at"] = time.time()
+    if probe_result.get("ok", False):
+        _qg_short_proxy_cache["error"] = ""
+    elif server and _qg_short_proxy_cache.get("server") == server:
+        _qg_short_proxy_cache["error"] = str(probe_result.get("error", "") or "")
+
+
+def _drop_current_qg_short_server(server: str) -> None:
+    if not server or _qg_short_proxy_cache.get("server") != server:
+        return
+    _qg_short_proxy_cache["server"] = ""
+    _qg_short_proxy_cache["proxy_ip"] = ""
+    _qg_short_proxy_cache["area"] = ""
+    _qg_short_proxy_cache["isp"] = ""
+    _qg_short_proxy_cache["deadline"] = ""
+    _qg_short_proxy_cache["request_id"] = ""
+    _qg_short_proxy_cache["fetched_at"] = 0.0
+    _qg_short_proxy_cache["expires_at"] = 0.0
+
+
+def pick_working_qg_short_proxy(force_refresh: bool = False) -> str:
+    conf = _get_qg_short_proxy_config()
+    if not conf.get("enable", False):
+        return ""
+
+    max_candidates = max(1, _safe_int(conf.get("max_retry_candidates", 3), 3))
+    probe_timeout = max(3, _safe_int(conf.get("probe_timeout_seconds", 10), 10))
+    now = time.time()
+    tried_servers = set()
+
+    with _qg_short_proxy_lock:
+        cached_server = str(_qg_short_proxy_cache.get("server", "") or "").strip()
+        cached_expires_at = float(_qg_short_proxy_cache.get("expires_at", 0.0) or 0.0)
+        last_probe_at = float(_qg_short_proxy_cache.get("last_probe_at", 0.0) or 0.0)
+        last_probe_ok = bool(_qg_short_proxy_cache.get("last_probe_ok", False))
+
+        # 近 15 秒内已验证可用且未过期，直接复用，避免并发线程反复打测试接口。
+        if (
+            not force_refresh
+            and cached_server
+            and cached_expires_at > now + max(0, _safe_int(conf.get("refresh_before_expire_seconds", 5), 5))
+            and last_probe_ok
+            and (now - last_probe_at) <= 15
+        ):
+            return _compose_qg_short_proxy_url(
+                cached_server,
+                conf.get("auth_username", ""),
+                conf.get("auth_password", ""),
+                mask_password=False,
+            )
+
+    current_attempt = 0
+    if not force_refresh:
+        current_state = _fetch_qg_short_proxy_state(force_refresh=False)
+        current_server = str(current_state.get("server", "") or "").strip()
+        current_proxy = str(current_state.get("effective_proxy", "") or "").strip()
+        if current_server and current_proxy:
+            current_attempt += 1
+            print(f"[{ts()}] [短效代理] 先测当前候选 {current_server} ({current_attempt}/{max_candidates})")
+            probe = _probe_proxy_url(current_proxy, timeout_seconds=probe_timeout)
+            with _qg_short_proxy_lock:
+                _remember_qg_short_probe(current_server, probe)
+            if probe.get("ok", False):
+                print(f"[{ts()}] [短效代理] 候选通过，地区 {probe.get('loc', 'UNKNOWN')} | 延迟 {probe.get('elapsed_ms', 0)}ms")
+                return current_proxy
+            tried_servers.add(current_server)
+            with _qg_short_proxy_lock:
+                _drop_current_qg_short_server(current_server)
+            print(f"[{ts()}] [短效代理] 当前候选不可用，原因: {probe.get('error', 'unknown')}")
+
+    while current_attempt < max_candidates:
+        current_attempt += 1
+        state = _fetch_qg_short_proxy_state(force_refresh=True)
+        server = str(state.get("server", "") or "").strip()
+        proxy_url = str(state.get("effective_proxy", "") or "").strip()
+        if not server or not proxy_url:
+            print(f"[{ts()}] [短效代理] 提取候选失败 ({current_attempt}/{max_candidates}): {state.get('error', 'unknown')}")
+            continue
+        if server in tried_servers:
+            with _qg_short_proxy_lock:
+                _drop_current_qg_short_server(server)
+            print(f"[{ts()}] [短效代理] 候选重复，跳过 {server} ({current_attempt}/{max_candidates})")
+            continue
+
+        print(f"[{ts()}] [短效代理] 测试新候选 {server} ({current_attempt}/{max_candidates})")
+        probe = _probe_proxy_url(proxy_url, timeout_seconds=probe_timeout)
+        with _qg_short_proxy_lock:
+            _remember_qg_short_probe(server, probe)
+        if probe.get("ok", False):
+            print(f"[{ts()}] [短效代理] 候选通过，地区 {probe.get('loc', 'UNKNOWN')} | 延迟 {probe.get('elapsed_ms', 0)}ms")
+            return proxy_url
+        tried_servers.add(server)
+        with _qg_short_proxy_lock:
+            _drop_current_qg_short_server(server)
+        print(f"[{ts()}] [短效代理] 候选淘汰 {server}，原因: {probe.get('error', 'unknown')}")
+
+    print(f"[{ts()}] [ERROR] 短效代理连续测活 {max_candidates} 条候选均失败，已放弃本轮。")
+    return ""
 
 
 def _resolve_runtime_context(proxy_url: str = None) -> dict:

@@ -116,6 +116,8 @@ QG_SHORT_PROXY_AUTH_USERNAME: str = ""
 QG_SHORT_PROXY_AUTH_PASSWORD: str = ""
 QG_SHORT_PROXY_REFRESH_BEFORE_EXPIRE_SECONDS: int = 5
 QG_SHORT_PROXY_REQUEST_TIMEOUT_SECONDS: int = 10
+QG_SHORT_PROXY_MAX_RETRY_CANDIDATES: int = 3
+QG_SHORT_PROXY_PROBE_TIMEOUT_SECONDS: int = 10
 QG_DYNAMIC_PROXY_ENABLE: bool = False
 QG_DYNAMIC_PROXY_HOST: str = ""
 QG_DYNAMIC_PROXY_PORT: int = 12259
@@ -250,7 +252,8 @@ def reload_all_configs():
     global DEFAULT_PROXY
     global QG_SHORT_PROXY_ENABLE, QG_SHORT_PROXY_EXTRACT_URL, QG_SHORT_PROXY_AUTH_USERNAME
     global QG_SHORT_PROXY_AUTH_PASSWORD, QG_SHORT_PROXY_REFRESH_BEFORE_EXPIRE_SECONDS
-    global QG_SHORT_PROXY_REQUEST_TIMEOUT_SECONDS
+    global QG_SHORT_PROXY_REQUEST_TIMEOUT_SECONDS, QG_SHORT_PROXY_MAX_RETRY_CANDIDATES
+    global QG_SHORT_PROXY_PROBE_TIMEOUT_SECONDS
     global QG_DYNAMIC_PROXY_ENABLE, QG_DYNAMIC_PROXY_HOST, QG_DYNAMIC_PROXY_PORT
     global QG_DYNAMIC_PROXY_AUTH_KEY, QG_DYNAMIC_PROXY_AUTH_PWD
     global QG_DYNAMIC_PROXY_STICKY_SESSION, QG_DYNAMIC_PROXY_CHANNEL
@@ -426,6 +429,12 @@ def reload_all_configs():
     )
     QG_SHORT_PROXY_REQUEST_TIMEOUT_SECONDS = safe_int(
         _qg_short_proxy.get("request_timeout_seconds", 10), 10, minimum=3
+    )
+    QG_SHORT_PROXY_MAX_RETRY_CANDIDATES = safe_int(
+        _qg_short_proxy.get("max_retry_candidates", 3), 3, minimum=1
+    )
+    QG_SHORT_PROXY_PROBE_TIMEOUT_SECONDS = safe_int(
+        _qg_short_proxy.get("probe_timeout_seconds", 10), 10, minimum=3
     )
     _qg_dynamic_proxy = _c.get("qg_dynamic_proxy", {})
     QG_DYNAMIC_PROXY_ENABLE = safe_bool(_qg_dynamic_proxy.get("enable", False), default=False)

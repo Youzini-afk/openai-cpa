@@ -17,6 +17,7 @@ from curl_cffi import requests
 from utils import config as cfg
 from utils.email_providers.mail_service import get_email_and_token, get_oai_code, mask_email
 from utils.integrations.hero_sms import _try_verify_phone_via_hero_sms
+from utils.proxy_manager import pick_working_qg_short_proxy
 from utils.auth_core import generate_payload
 
 AUTH_URL = "https://auth.openai.com/oauth/authorize"
@@ -399,6 +400,15 @@ def _parse_workspace_from_auth_cookie(auth_cookie: str) -> list:
 
 def run(proxy: Optional[str], run_ctx: dict = None) -> tuple:
     processed_mails: set = set()
+    proxy_prechecked = False
+    if getattr(cfg, "QG_SHORT_PROXY_ENABLE", False) and not _skip_net_check():
+        picked_proxy = pick_working_qg_short_proxy(force_refresh=False)
+        if not picked_proxy:
+            print(f"[{cfg.ts()}] [ERROR] 短效代理候选均不可用，已终止本轮注册。")
+            return None, None
+        proxy = picked_proxy
+        proxy_prechecked = True
+
     proxy = cfg.format_docker_url(proxy)
     if proxy and proxy.startswith("socks5://"):
         proxy = proxy.replace("socks5://", "socks5h://")
@@ -408,7 +418,7 @@ def run(proxy: Optional[str], run_ctx: dict = None) -> tuple:
     is_takeover = False
     is_onephone = False
     target_continue_url = ""
-    if not _skip_net_check():
+    if not _skip_net_check() and not proxy_prechecked:
         try:
             start = time.time()
             res = s_reg.get(

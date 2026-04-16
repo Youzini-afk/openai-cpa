@@ -170,6 +170,8 @@ def ensure_proxy_config_defaults(config_data: dict) -> dict:
     qg_short_proxy.setdefault("auth_password", "")
     qg_short_proxy.setdefault("refresh_before_expire_seconds", 5)
     qg_short_proxy.setdefault("request_timeout_seconds", 10)
+    qg_short_proxy.setdefault("max_retry_candidates", 3)
+    qg_short_proxy.setdefault("probe_timeout_seconds", 10)
 
     if "cpa_mode" not in config_data or not isinstance(config_data.get("cpa_mode"), dict):
         config_data["cpa_mode"] = {}
@@ -672,6 +674,8 @@ async def get_proxy_status(token: str = Depends(verify_token)):
             "auth_username": str(qg_short_conf.get("auth_username", "") or "").strip(),
             "refresh_before_expire_seconds": safe_int(qg_short_conf.get("refresh_before_expire_seconds", 5), 5),
             "request_timeout_seconds": safe_int(qg_short_conf.get("request_timeout_seconds", 10), 10),
+            "max_retry_candidates": safe_int(qg_short_conf.get("max_retry_candidates", 3), 3),
+            "probe_timeout_seconds": safe_int(qg_short_conf.get("probe_timeout_seconds", 10), 10),
             "effective_proxy": qg_short_status.get("effective_proxy", ""),
             "server": qg_short_status.get("server", ""),
             "proxy_ip": qg_short_status.get("proxy_ip", ""),
@@ -681,6 +685,11 @@ async def get_proxy_status(token: str = Depends(verify_token)):
             "request_id": qg_short_status.get("request_id", ""),
             "error": qg_short_status.get("error", ""),
             "cached": bool(qg_short_status.get("cached", False)),
+            "last_probe_ok": bool(qg_short_status.get("last_probe_ok", False)),
+            "last_probe_error": qg_short_status.get("last_probe_error", ""),
+            "last_probe_loc": qg_short_status.get("last_probe_loc", ""),
+            "last_probe_elapsed_ms": safe_int(qg_short_status.get("last_probe_elapsed_ms", 0), 0),
+            "last_probe_at": qg_short_status.get("last_probe_at", 0),
         },
         "qg_dynamic_proxy": {
             "enabled": bool(qg_conf.get("enable", False)),

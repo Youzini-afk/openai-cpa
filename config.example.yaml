@@ -122,6 +122,10 @@ qg_short_proxy:
   refresh_before_expire_seconds: 5
   # 提取接口超时秒数
   request_timeout_seconds: 10
+  # 提取失败/超时时，连续尝试几条候选短效IP
+  max_retry_candidates: 3
+  # 每条候选IP的联网测活超时秒数
+  probe_timeout_seconds: 10
 
 qg_dynamic_proxy:
   # 青果动态隧道代理，开启后会自动覆盖 default_proxy

@@ -3,7 +3,7 @@ const { createApp } = Vue;
 createApp({
     data() {
         return {
-            appVersion: 'v10.1.5',
+            appVersion: 'v10.1.6',
             isLoggedIn: !!localStorage.getItem('auth_token'),
             loginPassword: '',
             currentTab: window.location.hash.replace('#', '') || 'console',
@@ -281,6 +281,8 @@ createApp({
             if (this.config.qg_short_proxy.auth_password === undefined) this.config.qg_short_proxy.auth_password = '';
             if (this.config.qg_short_proxy.refresh_before_expire_seconds === undefined) this.config.qg_short_proxy.refresh_before_expire_seconds = 5;
             if (this.config.qg_short_proxy.request_timeout_seconds === undefined) this.config.qg_short_proxy.request_timeout_seconds = 10;
+            if (this.config.qg_short_proxy.max_retry_candidates === undefined) this.config.qg_short_proxy.max_retry_candidates = 3;
+            if (this.config.qg_short_proxy.probe_timeout_seconds === undefined) this.config.qg_short_proxy.probe_timeout_seconds = 10;
             if (!this.config.qg_dynamic_proxy) {
                 this.config.qg_dynamic_proxy = {};
             }
