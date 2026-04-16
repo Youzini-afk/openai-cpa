@@ -1,4 +1,5 @@
 import os
+import json
 import random
 import re
 import threading
@@ -21,6 +22,19 @@ NODE_BLACKLIST = []
 _IS_IN_DOCKER = os.path.exists("/.dockerenv")
 _global_switch_lock = threading.Lock()
 _last_switch_time = 0
+_qg_short_proxy_lock = threading.Lock()
+_qg_short_proxy_cache = {
+    "effective_proxy": "",
+    "server": "",
+    "proxy_ip": "",
+    "area": "",
+    "isp": "",
+    "deadline": "",
+    "request_id": "",
+    "error": "",
+    "fetched_at": 0.0,
+    "expires_at": 0.0,
+}
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(CURRENT_DIR)
 
@@ -136,6 +150,289 @@ def build_qg_dynamic_proxy_url(config_obj: dict = None, mask_password: bool = Fa
     return f"http://{encoded_user}:{encoded_pwd}@{host}:{port}"
 
 
+def _get_qg_short_proxy_config(config_obj: dict = None) -> dict:
+    runtime_cfg = _cfg()
+    if config_obj is None:
+        return {
+            "enable": bool(getattr(runtime_cfg, "QG_SHORT_PROXY_ENABLE", False)),
+            "extract_url": str(getattr(runtime_cfg, "QG_SHORT_PROXY_EXTRACT_URL", "") or "").strip(),
+            "auth_username": str(getattr(runtime_cfg, "QG_SHORT_PROXY_AUTH_USERNAME", "") or "").strip(),
+            "auth_password": str(getattr(runtime_cfg, "QG_SHORT_PROXY_AUTH_PASSWORD", "") or "").strip(),
+            "refresh_before_expire_seconds": _safe_int(
+                getattr(runtime_cfg, "QG_SHORT_PROXY_REFRESH_BEFORE_EXPIRE_SECONDS", 5), 5
+            ),
+            "request_timeout_seconds": _safe_int(
+                getattr(runtime_cfg, "QG_SHORT_PROXY_REQUEST_TIMEOUT_SECONDS", 10), 10
+            ),
+        }
+    return {
+        "enable": bool(config_obj.get("enable", False)),
+        "extract_url": str(config_obj.get("extract_url", "") or "").strip(),
+        "auth_username": str(config_obj.get("auth_username", "") or "").strip(),
+        "auth_password": str(config_obj.get("auth_password", "") or "").strip(),
+        "refresh_before_expire_seconds": _safe_int(config_obj.get("refresh_before_expire_seconds", 5), 5),
+        "request_timeout_seconds": _safe_int(config_obj.get("request_timeout_seconds", 10), 10),
+    }
+
+
+def _parse_qg_short_deadline(deadline_text: str) -> float:
+    raw = str(deadline_text or "").strip()
+    if not raw:
+        return 0.0
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
+        try:
+            return datetime.strptime(raw, fmt).timestamp()
+        except Exception:
+            continue
+    return 0.0
+
+
+def _compose_qg_short_proxy_url(server: str, auth_username: str, auth_password: str, mask_password: bool = False) -> str:
+    server = str(server or "").strip()
+    if not server:
+        return ""
+    if server.startswith("http://") or server.startswith("https://"):
+        base = server
+    else:
+        base = f"http://{server}"
+
+    if not auth_username or not auth_password:
+        return base
+
+    parsed = urllib.parse.urlparse(base)
+    host = parsed.hostname or ""
+    port = parsed.port
+    if not host:
+        return base
+    encoded_user = urllib.parse.quote(auth_username, safe="")
+    encoded_pwd = urllib.parse.quote(("******" if mask_password else auth_password), safe="")
+    return f"http://{encoded_user}:{encoded_pwd}@{host}:{port}" if port else f"http://{encoded_user}:{encoded_pwd}@{host}"
+
+
+def _extract_qg_short_server_from_text(raw_text: str) -> str:
+    text = str(raw_text or "").strip()
+    if not text:
+        return ""
+    direct_match = re.search(r"(\d{1,3}(?:\.\d{1,3}){3}:\d{2,5})", text)
+    if direct_match:
+        return direct_match.group(1)
+    return text.splitlines()[0].strip() if "\n" in text else text
+
+
+def _fetch_qg_short_proxy_state(config_obj: dict = None, force_refresh: bool = False) -> dict:
+    conf = _get_qg_short_proxy_config(config_obj)
+    if not conf.get("enable", False):
+        return {
+            "enabled": False,
+            "effective_proxy": "",
+            "server": "",
+            "proxy_ip": "",
+            "area": "",
+            "isp": "",
+            "deadline": "",
+            "request_id": "",
+            "error": "",
+            "cached": False,
+        }
+
+    extract_url = conf.get("extract_url", "")
+    if not extract_url:
+        return {
+            "enabled": True,
+            "effective_proxy": "",
+            "server": "",
+            "proxy_ip": "",
+            "area": "",
+            "isp": "",
+            "deadline": "",
+            "request_id": "",
+            "error": "未配置提取URL",
+            "cached": False,
+        }
+
+    refresh_before = max(0, _safe_int(conf.get("refresh_before_expire_seconds", 5), 5))
+    timeout = max(3, _safe_int(conf.get("request_timeout_seconds", 10), 10))
+    now = time.time()
+
+    with _qg_short_proxy_lock:
+        cached_proxy = str(_qg_short_proxy_cache.get("effective_proxy", "") or "").strip()
+        cached_expires_at = float(_qg_short_proxy_cache.get("expires_at", 0.0) or 0.0)
+        if not force_refresh and cached_proxy and cached_expires_at > now + refresh_before:
+            return {
+                "enabled": True,
+                "effective_proxy": cached_proxy,
+                "server": str(_qg_short_proxy_cache.get("server", "") or ""),
+                "proxy_ip": str(_qg_short_proxy_cache.get("proxy_ip", "") or ""),
+                "area": str(_qg_short_proxy_cache.get("area", "") or ""),
+                "isp": str(_qg_short_proxy_cache.get("isp", "") or ""),
+                "deadline": str(_qg_short_proxy_cache.get("deadline", "") or ""),
+                "request_id": str(_qg_short_proxy_cache.get("request_id", "") or ""),
+                "error": str(_qg_short_proxy_cache.get("error", "") or ""),
+                "cached": True,
+                "fetched_at": float(_qg_short_proxy_cache.get("fetched_at", 0.0) or 0.0),
+            }
+
+        try:
+            response = std_requests.get(
+                extract_url,
+                timeout=timeout,
+                headers={"Accept": "application/json, text/plain;q=0.9, */*;q=0.8"},
+            )
+            response.raise_for_status()
+
+            payload = None
+            try:
+                payload = response.json()
+            except Exception:
+                payload = None
+
+            request_id = ""
+            proxy_ip = ""
+            area = ""
+            isp = ""
+            deadline = ""
+            server = ""
+            error_msg = ""
+
+            if isinstance(payload, dict):
+                code = str(payload.get("code", payload.get("Code", "")) or "").strip().upper()
+                if code and code != "SUCCESS":
+                    if code == "0":
+                        code = ""
+                    else:
+                        error_msg = str(payload.get("message") or payload.get("msg") or payload.get("Message") or code)
+                if error_msg:
+                    raise RuntimeError(error_msg)
+
+                request_id = str(payload.get("request_id", payload.get("RequestId", "")) or "").strip()
+                data_list = payload.get("data", payload.get("Data")) or []
+                if isinstance(data_list, list) and data_list:
+                    first_item = data_list[0] or {}
+                    if isinstance(first_item, dict):
+                        server = str(first_item.get("server", first_item.get("Server", "")) or "").strip()
+                        proxy_ip = str(first_item.get("proxy_ip", first_item.get("ProxyIp", "")) or "").strip()
+                        area = str(first_item.get("area", first_item.get("Area", "")) or "").strip()
+                        isp = str(first_item.get("isp", first_item.get("Isp", "")) or "").strip()
+                        deadline = str(first_item.get("deadline", first_item.get("Deadline", "")) or "").strip()
+                    else:
+                        server = _extract_qg_short_server_from_text(str(first_item))
+                else:
+                    server = _extract_qg_short_server_from_text(response.text)
+            else:
+                server = _extract_qg_short_server_from_text(response.text)
+
+            if not server:
+                raise RuntimeError("提取成功但未返回 server 代理地址")
+
+            expires_at = _parse_qg_short_deadline(deadline)
+            if expires_at <= 0:
+                expires_at = now + 55
+
+            effective_proxy = _compose_qg_short_proxy_url(
+                server,
+                conf.get("auth_username", ""),
+                conf.get("auth_password", ""),
+                mask_password=False,
+            )
+            masked_proxy = _compose_qg_short_proxy_url(
+                server,
+                conf.get("auth_username", ""),
+                conf.get("auth_password", ""),
+                mask_password=True,
+            )
+
+            _qg_short_proxy_cache.update({
+                "effective_proxy": effective_proxy,
+                "masked_proxy": masked_proxy,
+                "server": server,
+                "proxy_ip": proxy_ip,
+                "area": area,
+                "isp": isp,
+                "deadline": deadline,
+                "request_id": request_id,
+                "error": "",
+                "fetched_at": now,
+                "expires_at": expires_at,
+            })
+            return {
+                "enabled": True,
+                "effective_proxy": effective_proxy,
+                "server": server,
+                "proxy_ip": proxy_ip,
+                "area": area,
+                "isp": isp,
+                "deadline": deadline,
+                "request_id": request_id,
+                "error": "",
+                "cached": False,
+                "fetched_at": now,
+            }
+        except Exception as exc:
+            error_text = str(exc)
+            cached_grace_ok = cached_proxy and cached_expires_at > now - 30
+            if cached_grace_ok:
+                _qg_short_proxy_cache["error"] = error_text
+                return {
+                    "enabled": True,
+                    "effective_proxy": cached_proxy,
+                    "server": str(_qg_short_proxy_cache.get("server", "") or ""),
+                    "proxy_ip": str(_qg_short_proxy_cache.get("proxy_ip", "") or ""),
+                    "area": str(_qg_short_proxy_cache.get("area", "") or ""),
+                    "isp": str(_qg_short_proxy_cache.get("isp", "") or ""),
+                    "deadline": str(_qg_short_proxy_cache.get("deadline", "") or ""),
+                    "request_id": str(_qg_short_proxy_cache.get("request_id", "") or ""),
+                    "error": error_text,
+                    "cached": True,
+                    "fetched_at": float(_qg_short_proxy_cache.get("fetched_at", 0.0) or 0.0),
+                }
+
+            _qg_short_proxy_cache.update({
+                "effective_proxy": "",
+                "masked_proxy": "",
+                "server": "",
+                "proxy_ip": "",
+                "area": "",
+                "isp": "",
+                "deadline": "",
+                "request_id": "",
+                "error": error_text,
+                "fetched_at": now,
+                "expires_at": 0.0,
+            })
+            return {
+                "enabled": True,
+                "effective_proxy": "",
+                "server": "",
+                "proxy_ip": "",
+                "area": "",
+                "isp": "",
+                "deadline": "",
+                "request_id": "",
+                "error": error_text,
+                "cached": False,
+                "fetched_at": now,
+            }
+
+
+def get_qg_short_proxy_status(force_refresh: bool = False) -> dict:
+    return _fetch_qg_short_proxy_state(force_refresh=force_refresh)
+
+
+def build_qg_short_proxy_url(config_obj: dict = None, mask_password: bool = False, force_refresh: bool = False) -> str:
+    state = _fetch_qg_short_proxy_state(config_obj=config_obj, force_refresh=force_refresh)
+    if not state.get("enabled", False):
+        return ""
+    if not mask_password:
+        return str(state.get("effective_proxy", "") or "").strip()
+    conf = _get_qg_short_proxy_config(config_obj)
+    return _compose_qg_short_proxy_url(
+        state.get("server", ""),
+        conf.get("auth_username", ""),
+        conf.get("auth_password", ""),
+        mask_password=True,
+    )
+
+
 def _resolve_runtime_context(proxy_url: str = None) -> dict:
     runtime_cfg = _cfg()
     if is_embedded_mode():
@@ -155,7 +452,8 @@ def _resolve_runtime_context(proxy_url: str = None) -> dict:
         }
 
     current_api_url = CLASH_API_URL
-    qg_proxy_url = build_qg_dynamic_proxy_url()
+    qg_short_proxy_url = build_qg_short_proxy_url()
+    qg_proxy_url = qg_short_proxy_url or build_qg_dynamic_proxy_url()
     resolved_local_proxy_url = qg_proxy_url or LOCAL_PROXY_URL
     qg_enabled = bool(qg_proxy_url)
     if POOL_MODE and proxy_url:
@@ -177,7 +475,11 @@ def _resolve_runtime_context(proxy_url: str = None) -> dict:
         "group_name": PROXY_GROUP_NAME,
         "secret": "" if qg_enabled else CLASH_SECRET,
         "blacklist": list(NODE_BLACKLIST),
-        "display_name": "青果动态代理" if qg_proxy_url and not proxy_url else get_display_name(proxy_url if proxy_url else resolved_local_proxy_url),
+        "display_name": (
+            "青果短效代理"
+            if qg_short_proxy_url and not proxy_url
+            else ("青果动态代理" if qg_proxy_url and not proxy_url else get_display_name(proxy_url if proxy_url else resolved_local_proxy_url))
+        ),
     }
 
 
@@ -186,6 +488,9 @@ def get_effective_default_proxy() -> str:
     if is_embedded_mode():
         endpoints = _embedded_manager().get_runtime_endpoints()
         return endpoints["mixed_proxy_url"]
+    qg_short_proxy_url = build_qg_short_proxy_url()
+    if qg_short_proxy_url:
+        return format_docker_url(qg_short_proxy_url)
     qg_proxy_url = build_qg_dynamic_proxy_url()
     if qg_proxy_url:
         return format_docker_url(qg_proxy_url)

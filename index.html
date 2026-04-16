@@ -1605,12 +1605,99 @@
                                         <div class="text-xs uppercase tracking-wider text-slate-400 font-black mb-2">当前生效代理</div>
                                         <div class="font-mono text-sm text-slate-700 break-all">{{ proxyStatus?.effective_default_proxy || config.default_proxy || '未启用' }}</div>
                                         <div class="mt-4 text-xs uppercase tracking-wider text-slate-400 font-black mb-2">控制器地址</div>
-                                        <div class="font-mono text-sm text-slate-700 break-all">{{ proxyStatus?.effective_controller_url || (isEmbeddedProxyMode ? '由后端自动生成' : (config.qg_dynamic_proxy?.enable ? '青果隧道代理无控制器' : config.clash_proxy_pool.api_url)) }}</div>
+                                        <div class="font-mono text-sm text-slate-700 break-all">{{ getControllerDisplay() }}</div>
                                     </div>
                                 </div>
                             </div>
 
                             <template v-if="!isEmbeddedProxyMode">
+                                <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/30 to-white" v-if="config.qg_short_proxy">
+                                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b border-cyan-100 pb-5 gap-4">
+                                        <div>
+                                            <h3 class="text-lg md:text-xl font-black text-cyan-700 tracking-tight flex items-center gap-2"><span>⚡</span> 青果短效代理</h3>
+                                            <p class="text-xs text-slate-400 mt-2">推荐模式：只填提取 URL 即可自动拉取短效 IP 并覆盖全局默认代理。</p>
+                                        </div>
+                                        <label class="relative inline-flex bg-white px-4 py-2.5 rounded-xl cursor-pointer hover:bg-cyan-50 transition-colors shadow-sm border border-cyan-200 w-full sm:w-auto items-center justify-center group">
+                                            <input type="checkbox" v-model="config.qg_short_proxy.enable" class="sr-only peer">
+                                            <div class="relative w-11 h-6 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all after:shadow-sm peer-checked:bg-cyan-600 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                            <span class="font-black text-cyan-900 text-sm md:text-base ml-3 tracking-wide">启用青果短效代理</span>
+                                        </label>
+                                    </div>
+                                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 md:gap-8" :class="{'opacity-50 pointer-events-none grayscale-[50%] transition-opacity duration-300': !config.qg_short_proxy.enable}">
+                                        <div class="space-y-4">
+                                            <div>
+                                                <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">提取 URL</label>
+                                                <div class="relative">
+                                                    <input v-if="!showPwd.qg_short_url" readonly :value="maskValue(config.qg_short_proxy.extract_url, 'url')"
+                                                           class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 pr-10 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-colors shadow-sm text-sm font-mono">
+                                                    <input v-else type="text" v-model="config.qg_short_proxy.extract_url" autocomplete="off"
+                                                           class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 pr-10 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-colors shadow-sm text-sm font-mono"
+                                                           placeholder="https://share.proxy.qg.net/get?key=你的key...">
+                                                    <button @click="showPwd.qg_short_url = !showPwd.qg_short_url" class="absolute right-3 top-1/2 -translate-y-1/2 text-lg text-slate-400 hover:text-cyan-600 focus:outline-none transition-transform hover:scale-110">
+                                                        {{ showPwd.qg_short_url ? '👁️' : '🙈' }}
+                                                    </button>
+                                                </div>
+                                                <p class="mt-2 text-xs text-slate-500 leading-relaxed">最简用法只填这一项。如果你的短效代理使用白名单模式，到这里就够了。</p>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">可选认证用户名</label>
+                                                    <input type="text" v-model="config.qg_short_proxy.auth_username" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-colors shadow-sm text-sm font-mono" placeholder="白名单模式留空">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">可选认证密码</label>
+                                                    <div class="relative">
+                                                        <input :type="showPwd.qg_short_pwd ? 'text' : 'password'" v-model="config.qg_short_proxy.auth_password" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 pr-10 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-colors shadow-sm text-sm font-mono" placeholder="白名单模式留空">
+                                                        <button @click="showPwd.qg_short_pwd = !showPwd.qg_short_pwd" class="absolute right-3 top-1/2 -translate-y-1/2 text-lg text-slate-400 hover:text-cyan-600 focus:outline-none transition-transform hover:scale-110">
+                                                            {{ showPwd.qg_short_pwd ? '👁️' : '🙈' }}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">提前刷新秒数</label>
+                                                    <input type="number" min="0" v-model.number="config.qg_short_proxy.refresh_before_expire_seconds" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-colors shadow-sm text-sm font-mono" placeholder="5">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">提取接口超时秒数</label>
+                                                    <input type="number" min="3" v-model.number="config.qg_short_proxy.request_timeout_seconds" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-colors shadow-sm text-sm font-mono" placeholder="10">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-slate-50 rounded-2xl border border-slate-200 p-5 shadow-inner space-y-4">
+                                            <div>
+                                                <div class="text-xs uppercase tracking-wider text-slate-400 font-black mb-2">当前提取结果</div>
+                                                <div class="font-mono text-sm text-slate-700 break-all">{{ getManagedProxyDisplay(!showPwd.proxy) }}</div>
+                                            </div>
+                                            <div class="grid grid-cols-2 gap-3 text-xs">
+                                                <div class="bg-white rounded-xl border border-slate-200 p-3">
+                                                    <div class="text-slate-400 font-black uppercase">Server</div>
+                                                    <div class="mt-1 font-mono text-slate-700 break-all">{{ proxyStatus?.qg_short_proxy?.server || '-' }}</div>
+                                                </div>
+                                                <div class="bg-white rounded-xl border border-slate-200 p-3">
+                                                    <div class="text-slate-400 font-black uppercase">到期时间</div>
+                                                    <div class="mt-1 font-mono text-slate-700 break-all">{{ proxyStatus?.qg_short_proxy?.deadline || '-' }}</div>
+                                                </div>
+                                                <div class="bg-white rounded-xl border border-slate-200 p-3">
+                                                    <div class="text-slate-400 font-black uppercase">地区</div>
+                                                    <div class="mt-1 font-mono text-slate-700 break-all">{{ proxyStatus?.qg_short_proxy?.area || '-' }}</div>
+                                                </div>
+                                                <div class="bg-white rounded-xl border border-slate-200 p-3">
+                                                    <div class="text-slate-400 font-black uppercase">请求ID</div>
+                                                    <div class="mt-1 font-mono text-slate-700 break-all">{{ proxyStatus?.qg_short_proxy?.request_id || '-' }}</div>
+                                                </div>
+                                            </div>
+                                            <div v-if="proxyStatus?.qg_short_proxy?.error" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700 break-all">
+                                                {{ proxyStatus.qg_short_proxy.error }}
+                                            </div>
+                                            <div class="text-xs text-slate-500 leading-relaxed">
+                                                开启后优先级最高，会覆盖下方基础代理和青果动态隧道代理。适合直接粘贴 `https://share.proxy.qg.net/get?...` 这种提取链接。
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 border-l-4 border-l-sky-500 bg-gradient-to-br from-sky-50/30 to-white" v-if="config.qg_dynamic_proxy">
                                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b border-sky-100 pb-5 gap-4">
                                         <div>
@@ -1691,11 +1778,11 @@
                                 <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 lg:max-w-3xl">
                                     <h3 class="text-lg md:text-xl font-black text-emerald-600 mb-5 flex items-center gap-2 tracking-tight"><span>🌐</span> 基础代理设置</h3>
                                     <label class="block text-slate-700 text-sm font-extrabold mb-1">全局默认代理</label>
-                                    <span class="block text-xs text-slate-400 mb-3 font-medium">{{ config.qg_dynamic_proxy?.enable ? '当前已启用青果动态代理，这里仅作备用手填值保留。' : '基础请求代理地址，如 http://127.0.0.1:7897' }}</span>
+                                    <span class="block text-xs text-slate-400 mb-3 font-medium">{{ (config.qg_short_proxy?.enable || config.qg_dynamic_proxy?.enable) ? '当前已启用青果代理，这里仅作备用手填值保留。' : '基础请求代理地址，如 http://127.0.0.1:7897' }}</span>
                                     <div class="relative">
-                                        <input v-if="config.qg_dynamic_proxy?.enable && !showPwd.proxy" readonly :value="maskValue(buildQGDynamicProxyUrl(config.qg_dynamic_proxy), 'url')"
+                                        <input v-if="(config.qg_short_proxy?.enable || config.qg_dynamic_proxy?.enable) && !showPwd.proxy" readonly :value="getManagedProxyDisplay(true)"
                                                class="w-full appearance-none bg-white border-2 border-slate-200 text-slate-700 font-mono rounded-xl py-3 px-4 focus:outline-none focus:ring-0 focus:border-emerald-500 transition-colors shadow-sm text-sm">
-                                        <input v-else-if="config.qg_dynamic_proxy?.enable" type="text" :value="buildQGDynamicProxyUrl(config.qg_dynamic_proxy)" readonly
+                                        <input v-else-if="config.qg_short_proxy?.enable || config.qg_dynamic_proxy?.enable" type="text" :value="getManagedProxyDisplay(false)" readonly
                                                class="w-full appearance-none bg-slate-50 border-2 border-slate-200 text-slate-700 font-mono rounded-xl py-3 px-4 focus:outline-none focus:ring-0 focus:border-emerald-500 transition-colors shadow-sm text-sm">
                                         <input v-else-if="!showPwd.proxy" readonly :value="maskValue(config.default_proxy)"
                                                class="w-full appearance-none bg-white border-2 border-slate-200 text-slate-700 font-mono rounded-xl py-3 px-4 focus:outline-none focus:ring-0 focus:border-emerald-500 transition-colors shadow-sm text-sm">

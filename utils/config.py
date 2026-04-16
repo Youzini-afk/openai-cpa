@@ -110,6 +110,12 @@ MC_API_BASE: str = ""
 MC_KEY: str = ""
 
 DEFAULT_PROXY: str = ""
+QG_SHORT_PROXY_ENABLE: bool = False
+QG_SHORT_PROXY_EXTRACT_URL: str = ""
+QG_SHORT_PROXY_AUTH_USERNAME: str = ""
+QG_SHORT_PROXY_AUTH_PASSWORD: str = ""
+QG_SHORT_PROXY_REFRESH_BEFORE_EXPIRE_SECONDS: int = 5
+QG_SHORT_PROXY_REQUEST_TIMEOUT_SECONDS: int = 10
 QG_DYNAMIC_PROXY_ENABLE: bool = False
 QG_DYNAMIC_PROXY_HOST: str = ""
 QG_DYNAMIC_PROXY_PORT: int = 12259
@@ -242,6 +248,9 @@ def reload_all_configs():
     global CM_API_URL, CM_ADMIN_EMAIL, CM_ADMIN_PASS
     global MC_API_BASE, MC_KEY
     global DEFAULT_PROXY
+    global QG_SHORT_PROXY_ENABLE, QG_SHORT_PROXY_EXTRACT_URL, QG_SHORT_PROXY_AUTH_USERNAME
+    global QG_SHORT_PROXY_AUTH_PASSWORD, QG_SHORT_PROXY_REFRESH_BEFORE_EXPIRE_SECONDS
+    global QG_SHORT_PROXY_REQUEST_TIMEOUT_SECONDS
     global QG_DYNAMIC_PROXY_ENABLE, QG_DYNAMIC_PROXY_HOST, QG_DYNAMIC_PROXY_PORT
     global QG_DYNAMIC_PROXY_AUTH_KEY, QG_DYNAMIC_PROXY_AUTH_PWD
     global QG_DYNAMIC_PROXY_STICKY_SESSION, QG_DYNAMIC_PROXY_CHANNEL
@@ -407,6 +416,17 @@ def reload_all_configs():
     MC_KEY           = _mc.get("key", "")
 
     DEFAULT_PROXY    = format_docker_url(_c.get("default_proxy", ""))
+    _qg_short_proxy = _c.get("qg_short_proxy", {})
+    QG_SHORT_PROXY_ENABLE = safe_bool(_qg_short_proxy.get("enable", False), default=False)
+    QG_SHORT_PROXY_EXTRACT_URL = str(_qg_short_proxy.get("extract_url", "") or "").strip()
+    QG_SHORT_PROXY_AUTH_USERNAME = str(_qg_short_proxy.get("auth_username", "") or "").strip()
+    QG_SHORT_PROXY_AUTH_PASSWORD = str(_qg_short_proxy.get("auth_password", "") or "").strip()
+    QG_SHORT_PROXY_REFRESH_BEFORE_EXPIRE_SECONDS = safe_int(
+        _qg_short_proxy.get("refresh_before_expire_seconds", 5), 5, minimum=0
+    )
+    QG_SHORT_PROXY_REQUEST_TIMEOUT_SECONDS = safe_int(
+        _qg_short_proxy.get("request_timeout_seconds", 10), 10, minimum=3
+    )
     _qg_dynamic_proxy = _c.get("qg_dynamic_proxy", {})
     QG_DYNAMIC_PROXY_ENABLE = safe_bool(_qg_dynamic_proxy.get("enable", False), default=False)
     QG_DYNAMIC_PROXY_HOST = str(_qg_dynamic_proxy.get("host", "") or "").strip()

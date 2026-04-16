@@ -111,6 +111,18 @@ fvia:
 # openai注册时代理地址，例子：http://127.0.0.1:7897。如果是国外服务器此项可以不填
 default_proxy: ""
 
+qg_short_proxy:
+  # 青果短效代理，只填提取URL即可自动拉取并覆盖 default_proxy
+  enable: false
+  extract_url: ""
+  # 可选：如果你的短效代理走账密认证，再填写下面两项；白名单模式留空即可
+  auth_username: ""
+  auth_password: ""
+  # 提前多少秒刷新新IP，默认 5 秒
+  refresh_before_expire_seconds: 5
+  # 提取接口超时秒数
+  request_timeout_seconds: 10
+
 qg_dynamic_proxy:
   # 青果动态隧道代理，开启后会自动覆盖 default_proxy
   enable: false

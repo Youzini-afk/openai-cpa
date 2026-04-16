@@ -77,6 +77,7 @@ createApp({
                 free_url: true, cm_url: true, cm_email: true, mc_base: true,
                 ai_base: true, cluster_url: true, proxy: true, clash_api: true,
                 clash_test: true, tg_token: false, tg_chatid: false, cpa_url: true, sub_url: true, codex_url: true,
+                qg_short_url: true, qg_short_pwd: false,
                 cluster_secret: false, hero_key: false, duck_token: false, duck_cookie: false,
                 luckmail: false, qg_pwd: false, qg_proxy: false,
                 temporam: false,
@@ -271,6 +272,15 @@ createApp({
             if (!this.config.proxy_backend) {
                 this.config.proxy_backend = { mode: 'external_clash' };
             }
+            if (!this.config.qg_short_proxy) {
+                this.config.qg_short_proxy = {};
+            }
+            if (this.config.qg_short_proxy.enable === undefined) this.config.qg_short_proxy.enable = false;
+            if (this.config.qg_short_proxy.extract_url === undefined) this.config.qg_short_proxy.extract_url = '';
+            if (this.config.qg_short_proxy.auth_username === undefined) this.config.qg_short_proxy.auth_username = '';
+            if (this.config.qg_short_proxy.auth_password === undefined) this.config.qg_short_proxy.auth_password = '';
+            if (this.config.qg_short_proxy.refresh_before_expire_seconds === undefined) this.config.qg_short_proxy.refresh_before_expire_seconds = 5;
+            if (this.config.qg_short_proxy.request_timeout_seconds === undefined) this.config.qg_short_proxy.request_timeout_seconds = 10;
             if (!this.config.qg_dynamic_proxy) {
                 this.config.qg_dynamic_proxy = {};
             }
@@ -1798,6 +1808,28 @@ createApp({
             if (!joinTime) return '0s';
             const diff = this.nowTimestamp - Math.floor(joinTime);
             return this.formatDuration(diff);
+        },
+        getManagedProxyDisplay(maskPassword = false) {
+            if (this.config?.qg_short_proxy?.enable) {
+                const proxy = this.proxyStatus?.qg_short_proxy?.effective_proxy || '';
+                if (!proxy) return '等待提取';
+                return maskPassword ? this.maskValue(proxy, 'url') : proxy;
+            }
+            if (this.config?.qg_dynamic_proxy?.enable) {
+                const proxy = this.buildQGDynamicProxyUrl(this.config.qg_dynamic_proxy, maskPassword);
+                return proxy || '请先填完整';
+            }
+            const proxy = this.config?.default_proxy || '';
+            return maskPassword ? this.maskValue(proxy, 'url') : proxy;
+        },
+        getControllerDisplay() {
+            if (this.isEmbeddedProxyMode) {
+                return this.proxyStatus?.effective_controller_url || '由后端自动生成';
+            }
+            if (this.config?.qg_short_proxy?.enable || this.config?.qg_dynamic_proxy?.enable) {
+                return '青果代理无控制器';
+            }
+            return this.proxyStatus?.effective_controller_url || this.config?.clash_proxy_pool?.api_url || '未配置';
         },
         buildQGDynamicProxyUrl(qgConfig = null, maskPassword = false) {
             const conf = qgConfig || this.config?.qg_dynamic_proxy;

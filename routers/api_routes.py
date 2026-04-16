@@ -23,7 +23,14 @@ from utils.integrations.codex2api_client import Codex2APIClient
 from utils.integrations.sub2api_client import Sub2APIClient
 from utils.integrations.tg_notifier import send_tg_msg_async
 from utils.email_providers.gmail_oauth_handler import GmailOAuthHandler
-from utils.proxy_manager import build_qg_dynamic_proxy_url, get_effective_controller_url, get_effective_default_proxy, get_proxy_backend_mode, is_embedded_mode
+from utils.proxy_manager import (
+    build_qg_dynamic_proxy_url,
+    get_effective_controller_url,
+    get_effective_default_proxy,
+    get_proxy_backend_mode,
+    get_qg_short_proxy_status,
+    is_embedded_mode,
+)
 from curl_cffi import requests as cffi_requests
 from global_state import VALID_TOKENS, CLUSTER_NODES, NODE_COMMANDS, cluster_lock, log_history, engine, verify_token, worker_status
 import utils.config as cfg
@@ -153,6 +160,16 @@ def ensure_proxy_config_defaults(config_data: dict) -> dict:
             return int(str(value).strip())
         except Exception:
             return default
+
+    if "qg_short_proxy" not in config_data or not isinstance(config_data.get("qg_short_proxy"), dict):
+        config_data["qg_short_proxy"] = {}
+    qg_short_proxy = config_data["qg_short_proxy"]
+    qg_short_proxy.setdefault("enable", False)
+    qg_short_proxy.setdefault("extract_url", "")
+    qg_short_proxy.setdefault("auth_username", "")
+    qg_short_proxy.setdefault("auth_password", "")
+    qg_short_proxy.setdefault("refresh_before_expire_seconds", 5)
+    qg_short_proxy.setdefault("request_timeout_seconds", 10)
 
     if "cpa_mode" not in config_data or not isinstance(config_data.get("cpa_mode"), dict):
         config_data["cpa_mode"] = {}
@@ -635,7 +652,9 @@ async def get_proxy_status(token: str = Depends(verify_token)):
 
     mode = get_proxy_backend_mode()
     embedded_status = get_embedded_mihomo_manager().status()
+    qg_short_conf = ((getattr(cfg, "_c", {}) or {}).get("qg_short_proxy", {}) or {})
     qg_conf = ((getattr(cfg, "_c", {}) or {}).get("qg_dynamic_proxy", {}) or {})
+    qg_short_status = get_qg_short_proxy_status()
     return {
         "status": "success",
         "mode": mode,
@@ -646,6 +665,22 @@ async def get_proxy_status(token: str = Depends(verify_token)):
             "controller_url": str(((getattr(cfg, "_c", {}) or {}).get("clash_proxy_pool", {}) or {}).get("api_url", "")).strip(),
             "group_name": str(((getattr(cfg, "_c", {}) or {}).get("clash_proxy_pool", {}) or {}).get("group_name", "节点选择")).strip(),
             "enable_switch": bool(((getattr(cfg, "_c", {}) or {}).get("clash_proxy_pool", {}) or {}).get("enable", False)),
+        },
+        "qg_short_proxy": {
+            "enabled": bool(qg_short_conf.get("enable", False)),
+            "extract_url": str(qg_short_conf.get("extract_url", "") or "").strip(),
+            "auth_username": str(qg_short_conf.get("auth_username", "") or "").strip(),
+            "refresh_before_expire_seconds": safe_int(qg_short_conf.get("refresh_before_expire_seconds", 5), 5),
+            "request_timeout_seconds": safe_int(qg_short_conf.get("request_timeout_seconds", 10), 10),
+            "effective_proxy": qg_short_status.get("effective_proxy", ""),
+            "server": qg_short_status.get("server", ""),
+            "proxy_ip": qg_short_status.get("proxy_ip", ""),
+            "area": qg_short_status.get("area", ""),
+            "isp": qg_short_status.get("isp", ""),
+            "deadline": qg_short_status.get("deadline", ""),
+            "request_id": qg_short_status.get("request_id", ""),
+            "error": qg_short_status.get("error", ""),
+            "cached": bool(qg_short_status.get("cached", False)),
         },
         "qg_dynamic_proxy": {
             "enabled": bool(qg_conf.get("enable", False)),
