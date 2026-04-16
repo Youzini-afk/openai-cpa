@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gzip \
     && rm -rf /var/lib/apt/lists/*
 
+COPY tools/resolve_mihomo_asset.py /tmp/resolve_mihomo_asset.py
+
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
@@ -20,54 +22,10 @@ RUN set -eux; \
     mkdir -p /app/bin; \
     export MIHOMO_VERSION="$MIHOMO_VERSION"; \
     export MIHOMO_ARCH="$mihomo_arch"; \
-    download_url="$(python - <<'PY'
-import json
-import os
-import urllib.error
-import urllib.request
-
-version = os.environ["MIHOMO_VERSION"].strip() or "latest"
-arch = os.environ["MIHOMO_ARCH"].strip()
-
-def fetch_release(target: str):
-    if target == "latest":
-        url = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
-    else:
-        url = f"https://api.github.com/repos/MetaCubeX/mihomo/releases/tags/{target}"
-    with urllib.request.urlopen(url) as response:
-        return json.load(response)
-
-try:
-    release = fetch_release(version)
-except urllib.error.HTTPError:
-    if version == "latest":
-        raise
-    release = fetch_release("latest")
-
-assets = release.get("assets", [])
-candidates = [
-    asset for asset in assets
-    if arch in (asset.get("name", "")).lower() and str(asset.get("name", "")).lower().endswith(".gz")
-]
-if not candidates:
-    raise SystemExit(f"no mihomo asset found for {arch}")
-
-def sort_key(asset):
-    name = str(asset.get("name", "")).lower()
-    if "compatible" in name:
-        return (0, len(name))
-    if "go120" in name:
-        return (1, len(name))
-    if "alpha" in name:
-        return (2, len(name))
-    return (3, len(name))
-
-candidates.sort(key=sort_key)
-print(candidates[0]["browser_download_url"])
-PY
-)"; \
+    download_url="$(python /tmp/resolve_mihomo_asset.py)"; \
     curl -fsSL "$download_url" | gzip -dc > /app/bin/mihomo; \
-    chmod +x /app/bin/mihomo
+    chmod +x /app/bin/mihomo; \
+    rm -f /tmp/resolve_mihomo_asset.py
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
