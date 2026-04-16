@@ -110,6 +110,26 @@ MC_API_BASE: str = ""
 MC_KEY: str = ""
 
 DEFAULT_PROXY: str = ""
+QG_DYNAMIC_PROXY_ENABLE: bool = False
+QG_DYNAMIC_PROXY_HOST: str = ""
+QG_DYNAMIC_PROXY_PORT: int = 12259
+QG_DYNAMIC_PROXY_AUTH_KEY: str = ""
+QG_DYNAMIC_PROXY_AUTH_PWD: str = ""
+QG_DYNAMIC_PROXY_STICKY_SESSION: bool = False
+QG_DYNAMIC_PROXY_CHANNEL: str = ""
+QG_DYNAMIC_PROXY_SESSION_SECONDS: int = 120
+QG_DYNAMIC_PROXY_AREA_CODE: str = ""
+PROXY_BACKEND_MODE: str = "external_clash"
+EMBEDDED_MIHOMO_ENABLE: bool = False
+EMBEDDED_MIHOMO_SUBSCRIPTION_URL: str = ""
+EMBEDDED_MIHOMO_AUTO_UPDATE: bool = False
+EMBEDDED_MIHOMO_UPDATE_INTERVAL_MINUTES: int = 60
+EMBEDDED_MIHOMO_MIXED_PORT: int = 7897
+EMBEDDED_MIHOMO_CONTROLLER_PORT: int = 9097
+EMBEDDED_MIHOMO_SECRET: str = "openai-cpa-mihomo"
+EMBEDDED_MIHOMO_GROUP_NAME: str = "节点选择"
+EMBEDDED_MIHOMO_TEST_URL: str = "https://www.gstatic.com/generate_204"
+EMBEDDED_MIHOMO_LOG_LINES: int = 200
 
 ENABLE_MULTI_THREAD_REG: bool = False
 REG_THREADS: int = 3
@@ -217,6 +237,16 @@ def reload_all_configs():
     global CM_API_URL, CM_ADMIN_EMAIL, CM_ADMIN_PASS
     global MC_API_BASE, MC_KEY
     global DEFAULT_PROXY
+    global QG_DYNAMIC_PROXY_ENABLE, QG_DYNAMIC_PROXY_HOST, QG_DYNAMIC_PROXY_PORT
+    global QG_DYNAMIC_PROXY_AUTH_KEY, QG_DYNAMIC_PROXY_AUTH_PWD
+    global QG_DYNAMIC_PROXY_STICKY_SESSION, QG_DYNAMIC_PROXY_CHANNEL
+    global QG_DYNAMIC_PROXY_SESSION_SECONDS, QG_DYNAMIC_PROXY_AREA_CODE
+    global PROXY_BACKEND_MODE
+    global EMBEDDED_MIHOMO_ENABLE, EMBEDDED_MIHOMO_SUBSCRIPTION_URL
+    global EMBEDDED_MIHOMO_AUTO_UPDATE, EMBEDDED_MIHOMO_UPDATE_INTERVAL_MINUTES
+    global EMBEDDED_MIHOMO_MIXED_PORT, EMBEDDED_MIHOMO_CONTROLLER_PORT
+    global EMBEDDED_MIHOMO_SECRET, EMBEDDED_MIHOMO_GROUP_NAME
+    global EMBEDDED_MIHOMO_TEST_URL, EMBEDDED_MIHOMO_LOG_LINES
     global SUB_DOMAIN_LEVEL,RANDOM_SUB_DOMAIN_LEVEL
     global ENABLE_MULTI_THREAD_REG, REG_THREADS, MAX_OTP_RETRIES
     global USE_PROXY_FOR_EMAIL, ENABLE_EMAIL_MASKING
@@ -371,6 +401,32 @@ def reload_all_configs():
     MC_KEY           = _mc.get("key", "")
 
     DEFAULT_PROXY    = format_docker_url(_c.get("default_proxy", ""))
+    _qg_dynamic_proxy = _c.get("qg_dynamic_proxy", {})
+    QG_DYNAMIC_PROXY_ENABLE = safe_bool(_qg_dynamic_proxy.get("enable", False), default=False)
+    QG_DYNAMIC_PROXY_HOST = str(_qg_dynamic_proxy.get("host", "") or "").strip()
+    QG_DYNAMIC_PROXY_PORT = safe_int(_qg_dynamic_proxy.get("port", 12259), 12259, minimum=1)
+    QG_DYNAMIC_PROXY_AUTH_KEY = str(_qg_dynamic_proxy.get("auth_key", "") or "").strip()
+    QG_DYNAMIC_PROXY_AUTH_PWD = str(_qg_dynamic_proxy.get("auth_pwd", "") or "").strip()
+    QG_DYNAMIC_PROXY_STICKY_SESSION = safe_bool(_qg_dynamic_proxy.get("sticky_session", False), default=False)
+    QG_DYNAMIC_PROXY_CHANNEL = str(_qg_dynamic_proxy.get("channel", "") or "").strip()
+    QG_DYNAMIC_PROXY_SESSION_SECONDS = safe_int(_qg_dynamic_proxy.get("session_seconds", 120), 120, minimum=1)
+    QG_DYNAMIC_PROXY_AREA_CODE = str(_qg_dynamic_proxy.get("area_code", "") or "").strip()
+    _proxy_backend = _c.get("proxy_backend", {})
+    PROXY_BACKEND_MODE = str(_proxy_backend.get("mode", "external_clash") or "external_clash").strip().lower()
+    if PROXY_BACKEND_MODE not in {"external_clash", "embedded_mihomo"}:
+        PROXY_BACKEND_MODE = "external_clash"
+
+    _embedded = _c.get("embedded_mihomo", {})
+    EMBEDDED_MIHOMO_ENABLE = safe_bool(_embedded.get("enable", False), default=False)
+    EMBEDDED_MIHOMO_SUBSCRIPTION_URL = str(_embedded.get("subscription_url", "") or "").strip()
+    EMBEDDED_MIHOMO_AUTO_UPDATE = safe_bool(_embedded.get("auto_update", False), default=False)
+    EMBEDDED_MIHOMO_UPDATE_INTERVAL_MINUTES = safe_int(_embedded.get("update_interval_minutes", 60), 60, minimum=5)
+    EMBEDDED_MIHOMO_MIXED_PORT = safe_int(_embedded.get("mixed_port", 7897), 7897, minimum=1)
+    EMBEDDED_MIHOMO_CONTROLLER_PORT = safe_int(_embedded.get("controller_port", 9097), 9097, minimum=1)
+    EMBEDDED_MIHOMO_SECRET = str(_embedded.get("secret", "openai-cpa-mihomo") or "openai-cpa-mihomo").strip() or "openai-cpa-mihomo"
+    EMBEDDED_MIHOMO_GROUP_NAME = str(_embedded.get("group_name", "节点选择") or "节点选择").strip() or "节点选择"
+    EMBEDDED_MIHOMO_TEST_URL = str(_embedded.get("test_url", "https://www.gstatic.com/generate_204") or "").strip() or "https://www.gstatic.com/generate_204"
+    EMBEDDED_MIHOMO_LOG_LINES = safe_int(_embedded.get("log_lines", 200), 200, minimum=20)
 
     ENABLE_MULTI_THREAD_REG = _c.get("enable_multi_thread_reg", False)
     REG_THREADS      = _c.get("reg_threads", 3)

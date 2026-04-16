@@ -145,8 +145,6 @@
                                 </div>
                             </div>
                         </div>
-
-
                         <div v-if="config" class="w-full md:w-auto">
                             <div class="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                                 <span class="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-widest ml-1 sm:hidden">运行模式切换</span>
@@ -269,7 +267,7 @@
                                             <span class="text-slate-400 font-medium whitespace-pre-wrap break-all tracking-tight">{{ log.raw }}</span>
                                         </template>
                                     </div>
-                                </div>
+                            </div>
                             </div>
                         </div>
                         <div v-show="currentTab === 'cluster'" class="h-full flex flex-col space-y-6">
@@ -1584,20 +1582,126 @@
 
 
                         <div v-show="currentTab === 'proxy'" v-if="config" class="space-y-5 md:space-y-8">
-                            <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 lg:max-w-3xl">
-                                <h3 class="text-lg md:text-xl font-black text-emerald-600 mb-5 flex items-center gap-2 tracking-tight"><span>🌐</span> 基础代理设置</h3>
-                                <label class="block text-slate-700 text-sm font-extrabold mb-1">全局默认代理</label>
-                                <span class="block text-xs text-slate-400 mb-3 font-medium">基础请求代理地址，如 http://127.0.0.1:7897</span>
-                                <div class="relative">
-                                    <input v-if="!showPwd.proxy" readonly :value="maskValue(config.default_proxy)"
-                                           class="w-full appearance-none bg-white border-2 border-slate-200 text-slate-700 font-mono rounded-xl py-3 px-4 focus:outline-none focus:ring-0 focus:border-emerald-500 transition-colors shadow-sm text-sm">
-                                    <input v-else type="text" v-model="config.default_proxy" autocomplete="off"
-                                           class="w-full appearance-none bg-white border-2 border-slate-200 text-slate-700 font-mono rounded-xl py-3 px-4 focus:outline-none focus:ring-0 focus:border-emerald-500 transition-colors shadow-sm text-sm">
-                                    <button @click="showPwd.proxy = !showPwd.proxy" class="absolute right-3 top-1/2 -translate-y-1/2 text-lg text-slate-400 hover:text-blue-500">
-                                        {{ showPwd.proxy ? '👁️' : '🙈' }}
-                                    </button>
+                            <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60">
+                                <div class="flex flex-col lg:flex-row gap-6 lg:items-end lg:justify-between">
+                                    <div class="flex-1 space-y-4">
+                                        <h3 class="text-lg md:text-xl font-black text-emerald-600 flex items-center gap-2 tracking-tight"><span>🌐</span> 代理后端模式</h3>
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <button @click="config.proxy_backend.mode = 'external_clash'" :class="config.proxy_backend.mode === 'external_clash' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600'" class="text-left border-2 rounded-2xl px-5 py-4 transition-colors shadow-sm">
+                                                <div class="font-black text-base">外接 Clash</div>
+                                                <div class="text-xs mt-1 opacity-80">继续使用你自己的 Clash / Mihomo 控制器</div>
+                                            </button>
+                                            <button @click="config.proxy_backend.mode = 'embedded_mihomo'" :class="config.proxy_backend.mode === 'embedded_mihomo' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600'" class="text-left border-2 rounded-2xl px-5 py-4 transition-colors shadow-sm">
+                                                <div class="font-black text-base">内置 Mihomo</div>
+                                                <div class="text-xs mt-1 opacity-80">推荐 Zeabur 使用，服务内置订阅与节点控制</div>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="lg:w-[340px] bg-slate-50 border border-slate-200 rounded-2xl p-5 shadow-inner">
+                                        <div class="text-xs uppercase tracking-wider text-slate-400 font-black mb-2">当前生效代理</div>
+                                        <div class="font-mono text-sm text-slate-700 break-all">{{ proxyStatus?.effective_default_proxy || config.default_proxy || '未启用' }}</div>
+                                        <div class="mt-4 text-xs uppercase tracking-wider text-slate-400 font-black mb-2">控制器地址</div>
+                                        <div class="font-mono text-sm text-slate-700 break-all">{{ proxyStatus?.effective_controller_url || (isEmbeddedProxyMode ? '由后端自动生成' : (config.qg_dynamic_proxy?.enable ? '青果隧道代理无控制器' : config.clash_proxy_pool.api_url)) }}</div>
+                                    </div>
                                 </div>
                             </div>
+
+                            <template v-if="!isEmbeddedProxyMode">
+                                <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 border-l-4 border-l-sky-500 bg-gradient-to-br from-sky-50/30 to-white" v-if="config.qg_dynamic_proxy">
+                                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b border-sky-100 pb-5 gap-4">
+                                        <div>
+                                            <h3 class="text-lg md:text-xl font-black text-sky-700 tracking-tight flex items-center gap-2"><span>🌊</span> 青果动态代理</h3>
+                                            <p class="text-xs text-slate-400 mt-2">启用后自动覆盖全局默认代理，不需要手工拼接代理 URL。</p>
+                                        </div>
+                                        <label class="relative inline-flex bg-white px-4 py-2.5 rounded-xl cursor-pointer hover:bg-sky-50 transition-colors shadow-sm border border-sky-200 w-full sm:w-auto items-center justify-center group">
+                                            <input type="checkbox" v-model="config.qg_dynamic_proxy.enable" class="sr-only peer">
+                                            <div class="relative w-11 h-6 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all after:shadow-sm peer-checked:bg-sky-600 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                            <span class="font-black text-sky-900 text-sm md:text-base ml-3 tracking-wide">启用青果动态代理</span>
+                                        </label>
+                                    </div>
+                                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 md:gap-8" :class="{'opacity-50 pointer-events-none grayscale-[50%] transition-opacity duration-300': !config.qg_dynamic_proxy.enable}">
+                                        <div class="space-y-4">
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">隧道地址</label>
+                                                    <input type="text" v-model="config.qg_dynamic_proxy.host" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-colors shadow-sm text-sm font-mono" placeholder="支持直接填 overseas-us.tunnel.qg.net:12259">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">端口</label>
+                                                    <input type="number" v-model.number="config.qg_dynamic_proxy.port" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-colors shadow-sm text-sm font-mono" placeholder="12259">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">AuthKey</label>
+                                                    <input type="text" v-model="config.qg_dynamic_proxy.auth_key" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-colors shadow-sm text-sm font-mono" placeholder="BA104604">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">AuthPwd</label>
+                                                    <div class="relative">
+                                                        <input :type="showPwd.qg_pwd ? 'text' : 'password'" v-model="config.qg_dynamic_proxy.auth_pwd" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 pr-10 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-colors shadow-sm text-sm font-mono" placeholder="94DFD0329BA9">
+                                                        <button @click="showPwd.qg_pwd = !showPwd.qg_pwd" class="absolute right-3 top-1/2 -translate-y-1/2 text-lg text-slate-400 hover:text-sky-600 focus:outline-none transition-transform hover:scale-110">
+                                                            {{ showPwd.qg_pwd ? '👁️' : '🙈' }}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <label class="relative inline-flex items-center p-4 bg-slate-50 rounded-xl border border-slate-200 shadow-sm cursor-pointer hover:bg-sky-50 transition-colors group">
+                                                    <input type="checkbox" v-model="config.qg_dynamic_proxy.sticky_session" class="sr-only peer">
+                                                    <div class="relative w-11 h-6 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all after:shadow-sm peer-checked:bg-sky-600 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                                    <span class="ml-4 text-sm font-black text-slate-800 tracking-wide">启用同 IP 保持</span>
+                                                </label>
+                                                <div class="bg-slate-50 rounded-xl border border-slate-200 p-4 text-xs text-slate-500 leading-relaxed">
+                                                    会自动拼成 `AuthKey:C通道:T秒数:A地区码` 的用户名格式。
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4" v-if="config.qg_dynamic_proxy.sticky_session">
+                                                <div>
+                                                    <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">通道名</label>
+                                                    <input type="text" v-model="config.qg_dynamic_proxy.channel" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-colors shadow-sm text-sm font-mono" placeholder="reg1">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">保持秒数</label>
+                                                    <input type="number" v-model.number="config.qg_dynamic_proxy.session_seconds" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-colors shadow-sm text-sm font-mono" placeholder="120">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">地区码</label>
+                                                    <input type="text" v-model="config.qg_dynamic_proxy.area_code" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-colors shadow-sm text-sm font-mono" placeholder="990100">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-slate-50 rounded-2xl border border-slate-200 p-5 shadow-inner space-y-4">
+                                            <div>
+                                                <div class="text-xs uppercase tracking-wider text-slate-400 font-black mb-2">自动生成结果</div>
+                                                <div class="font-mono text-sm text-slate-700 break-all">{{ showPwd.qg_proxy ? (buildQGDynamicProxyUrl(config.qg_dynamic_proxy) || '请先填完整') : maskValue(buildQGDynamicProxyUrl(config.qg_dynamic_proxy), 'url') }}</div>
+                                            </div>
+                                            <button @click="showPwd.qg_proxy = !showPwd.qg_proxy" class="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 font-black text-sm shadow-sm hover:bg-slate-50">
+                                                {{ showPwd.qg_proxy ? '隐藏完整代理地址' : '查看完整代理地址' }}
+                                            </button>
+                                            <div class="text-xs text-slate-500 leading-relaxed">
+                                                启用后，主流程会优先使用这里生成的代理地址；上面的 `全局默认代理` 将只作为备用手填值保留。
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 lg:max-w-3xl">
+                                    <h3 class="text-lg md:text-xl font-black text-emerald-600 mb-5 flex items-center gap-2 tracking-tight"><span>🌐</span> 基础代理设置</h3>
+                                    <label class="block text-slate-700 text-sm font-extrabold mb-1">全局默认代理</label>
+                                    <span class="block text-xs text-slate-400 mb-3 font-medium">{{ config.qg_dynamic_proxy?.enable ? '当前已启用青果动态代理，这里仅作备用手填值保留。' : '基础请求代理地址，如 http://127.0.0.1:7897' }}</span>
+                                    <div class="relative">
+                                        <input v-if="config.qg_dynamic_proxy?.enable && !showPwd.proxy" readonly :value="maskValue(buildQGDynamicProxyUrl(config.qg_dynamic_proxy), 'url')"
+                                               class="w-full appearance-none bg-white border-2 border-slate-200 text-slate-700 font-mono rounded-xl py-3 px-4 focus:outline-none focus:ring-0 focus:border-emerald-500 transition-colors shadow-sm text-sm">
+                                        <input v-else-if="config.qg_dynamic_proxy?.enable" type="text" :value="buildQGDynamicProxyUrl(config.qg_dynamic_proxy)" readonly
+                                               class="w-full appearance-none bg-slate-50 border-2 border-slate-200 text-slate-700 font-mono rounded-xl py-3 px-4 focus:outline-none focus:ring-0 focus:border-emerald-500 transition-colors shadow-sm text-sm">
+                                        <input v-else-if="!showPwd.proxy" readonly :value="maskValue(config.default_proxy)"
+                                               class="w-full appearance-none bg-white border-2 border-slate-200 text-slate-700 font-mono rounded-xl py-3 px-4 focus:outline-none focus:ring-0 focus:border-emerald-500 transition-colors shadow-sm text-sm">
+                                        <input v-else type="text" v-model="config.default_proxy" autocomplete="off"
+                                               class="w-full appearance-none bg-white border-2 border-slate-200 text-slate-700 font-mono rounded-xl py-3 px-4 focus:outline-none focus:ring-0 focus:border-emerald-500 transition-colors shadow-sm text-sm">
+                                        <button @click="showPwd.proxy = !showPwd.proxy" class="absolute right-3 top-1/2 -translate-y-1/2 text-lg text-slate-400 hover:text-blue-500">
+                                            {{ showPwd.proxy ? '👁️' : '🙈' }}
+                                        </button>
+                                    </div>
+                                </div>
 
                             <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 border-l-4 border-l-indigo-500 bg-gradient-to-br from-indigo-50/30 to-white" v-if="config.clash_proxy_pool">
                                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 md:mb-8 border-b border-indigo-100 pb-5 gap-4">
@@ -1687,6 +1791,75 @@
                                     </div>
                                 </div>
                             </div>
+                            </template>
+                            <template v-else>
+                                <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/60 border-l-4 border-l-emerald-500 bg-gradient-to-br from-emerald-50/30 to-white space-y-6">
+                                    <div class="flex flex-col lg:flex-row gap-6 lg:items-start lg:justify-between">
+                                        <div class="flex-1 space-y-4">
+                                            <div class="flex items-center justify-between gap-4">
+                                                <h3 class="text-xl md:text-2xl font-black text-emerald-700 tracking-tight flex items-center gap-2"><span>🧩</span> 内置 Mihomo</h3>
+                                                <span :class="proxyStatus?.embedded?.running ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-amber-100 text-amber-700 border-amber-200'" class="px-3 py-1.5 rounded-full border text-xs font-black shadow-sm">{{ proxyStatus?.embedded?.running ? '运行中' : '未启动' }}</span>
+                                            </div>
+                                            <input type="text" v-model="config.embedded_mihomo.subscription_url" autocomplete="off" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors shadow-sm font-mono text-sm" placeholder="订阅地址 https://your-subscription-url">
+                                            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                                                <label class="relative inline-flex text-slate-700 font-bold bg-slate-50/80 p-4 rounded-xl border border-slate-200/60 items-center cursor-pointer shadow-sm hover:bg-slate-100 transition-colors group"><input type="checkbox" v-model="config.embedded_mihomo.enable" class="sr-only peer"><div class="relative w-9 h-5 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-emerald-500 shadow-inner"></div><span class="ml-3 text-sm block tracking-wide">启用内置模式</span></label>
+                                                <label class="relative inline-flex text-slate-700 font-bold bg-slate-50/80 p-4 rounded-xl border border-slate-200/60 items-center cursor-pointer shadow-sm hover:bg-slate-100 transition-colors group"><input type="checkbox" v-model="config.embedded_mihomo.auto_update" class="sr-only peer"><div class="relative w-9 h-5 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-indigo-500 shadow-inner"></div><span class="ml-3 text-sm block tracking-wide">自动更新订阅</span></label>
+                                                <label class="relative inline-flex text-slate-700 font-bold bg-slate-50/80 p-4 rounded-xl border border-slate-200/60 items-center cursor-pointer shadow-sm hover:bg-slate-100 transition-colors group"><input type="checkbox" v-model="config.clash_proxy_pool.enable" class="sr-only peer"><div class="relative w-9 h-5 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-violet-500 shadow-inner"></div><span class="ml-3 text-sm block tracking-wide">启用智能切点</span></label>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                                <input type="number" v-model.number="config.embedded_mihomo.mixed_port" class="appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors shadow-sm text-sm" placeholder="Mixed Port">
+                                                <input type="number" v-model.number="config.embedded_mihomo.controller_port" class="appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors shadow-sm text-sm" placeholder="Controller Port">
+                                                <input type="number" v-model.number="config.embedded_mihomo.update_interval_minutes" class="appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors shadow-sm text-sm" placeholder="自动更新间隔">
+                                                <input type="text" v-model="config.embedded_mihomo.group_name" class="appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors shadow-sm text-sm" placeholder="默认策略组">
+                                                <input type="text" v-model="config.embedded_mihomo.test_url" class="appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors shadow-sm text-sm font-mono" placeholder="测速 URL">
+                                                <input type="number" v-model.number="config.embedded_mihomo.log_lines" class="appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors shadow-sm text-sm" placeholder="日志行数">
+                                            </div>
+                                            <div class="relative">
+                                                <input :type="showPwd.clash ? 'text' : 'password'" v-model="config.embedded_mihomo.secret" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 pr-10 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors shadow-sm font-mono text-sm" placeholder="Controller Secret">
+                                                <button @click="showPwd.clash = !showPwd.clash" class="absolute right-3 top-1/2 -translate-y-1/2 text-lg text-slate-400 hover:text-emerald-600 focus:outline-none transition-transform hover:scale-110">{{ showPwd.clash ? '👁️' : '🙈' }}</button>
+                                            </div>
+                                            <div class="flex flex-wrap gap-3">
+                                                <button @click="importProxySubscription" :disabled="isProxyActionLoading" class="px-4 py-2.5 rounded-xl bg-emerald-600 text-white font-black text-sm shadow-sm hover:bg-emerald-700 disabled:opacity-50">导入订阅</button>
+                                                <button @click="updateProxySubscription" :disabled="isProxyActionLoading" class="px-4 py-2.5 rounded-xl bg-white border border-emerald-200 text-emerald-700 font-black text-sm shadow-sm hover:bg-emerald-50 disabled:opacity-50">更新订阅</button>
+                                                <button @click="proxyCoreAction('start')" :disabled="isProxyActionLoading" class="px-4 py-2.5 rounded-xl bg-white border border-indigo-200 text-indigo-700 font-black text-sm shadow-sm hover:bg-indigo-50 disabled:opacity-50">启动</button>
+                                                <button @click="proxyCoreAction('restart')" :disabled="isProxyActionLoading" class="px-4 py-2.5 rounded-xl bg-white border border-amber-200 text-amber-700 font-black text-sm shadow-sm hover:bg-amber-50 disabled:opacity-50">重启</button>
+                                                <button @click="proxyCoreAction('stop')" :disabled="isProxyActionLoading" class="px-4 py-2.5 rounded-xl bg-white border border-rose-200 text-rose-700 font-black text-sm shadow-sm hover:bg-rose-50 disabled:opacity-50">停止</button>
+                                            </div>
+                                        </div>
+                                        <div class="lg:w-[320px] bg-slate-50 border border-slate-200 rounded-2xl p-5 shadow-inner grid grid-cols-2 gap-3 text-sm">
+                                            <div class="bg-white rounded-xl border border-slate-200 p-3 col-span-2"><div class="text-slate-400 text-[11px] font-black uppercase">生效代理</div><div class="mt-1 font-mono text-xs text-slate-700 break-all">{{ proxyStatus?.effective_default_proxy || '-' }}</div></div>
+                                            <div class="bg-white rounded-xl border border-slate-200 p-3 col-span-2"><div class="text-slate-400 text-[11px] font-black uppercase">控制器</div><div class="mt-1 font-mono text-xs text-slate-700 break-all">{{ proxyStatus?.effective_controller_url || '-' }}</div></div>
+                                            <div class="bg-white rounded-xl border border-slate-200 p-3"><div class="text-slate-400 text-[11px] font-black uppercase">状态</div><div class="mt-1 font-black" :class="proxyStatus?.embedded?.running ? 'text-emerald-600' : 'text-amber-600'">{{ proxyStatus?.embedded?.running ? '已启动' : '未启动' }}</div></div>
+                                            <div class="bg-white rounded-xl border border-slate-200 p-3"><div class="text-slate-400 text-[11px] font-black uppercase">策略组数</div><div class="mt-1 font-black text-slate-700">{{ proxyStatus?.embedded?.groups_count || 0 }}</div></div>
+                                            <div class="bg-white rounded-xl border border-slate-200 p-3 col-span-2"><div class="text-slate-400 text-[11px] font-black uppercase">最近错误</div><div class="mt-1 text-xs break-all" :class="proxyStatus?.embedded?.last_error ? 'text-rose-600' : 'text-slate-400'">{{ proxyStatus?.embedded?.last_error || '无' }}</div></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 md:gap-8">
+                                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/60 space-y-4">
+                                        <div class="flex flex-col sm:flex-row gap-3">
+                                            <select v-model="selectedProxyGroup" class="flex-1 appearance-none bg-white border border-slate-200 text-slate-700 rounded-xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors shadow-sm text-sm"><option value="" disabled>选择策略组</option><option v-for="group in proxyGroups" :key="group.name" :value="group.name">{{ group.name }}</option></select>
+                                            <button @click="changeEmbeddedGroup" :disabled="!selectedProxyGroup" class="px-4 py-3 rounded-xl bg-white border border-indigo-200 text-indigo-700 font-black text-sm shadow-sm hover:bg-indigo-50 disabled:opacity-50">应用</button>
+                                            <button @click="runProxyDelayTest" :disabled="isProxyDelayLoading || !selectedProxyGroup" class="px-4 py-3 rounded-xl bg-indigo-600 text-white font-black text-sm shadow-sm hover:bg-indigo-700 disabled:opacity-50">测速</button>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-3 text-sm">
+                                            <div class="bg-slate-50 rounded-xl border border-slate-200 p-3"><div class="text-slate-400 text-[11px] font-black uppercase">当前节点</div><div class="mt-1 font-black text-slate-700 break-all">{{ selectedProxyGroupData?.now || '-' }}</div></div>
+                                            <div class="bg-slate-50 rounded-xl border border-slate-200 p-3"><div class="text-slate-400 text-[11px] font-black uppercase">候选数量</div><div class="mt-1 font-black text-slate-700">{{ selectedProxyNodes.length }}</div></div>
+                                        </div>
+                                        <div class="max-h-[240px] overflow-y-auto space-y-2 pr-1">
+                                            <button v-for="node in selectedProxyNodes" :key="node" @click="selectEmbeddedNode(node)" :class="selectedProxyGroupData?.now === node ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'" class="w-full text-left border rounded-xl px-4 py-3 transition-colors shadow-sm text-sm font-medium break-all">{{ node }}</button>
+                                            <div v-if="selectedProxyNodes.length === 0" class="text-sm text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center">当前没有可展示的节点</div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/60 space-y-4">
+                                        <div class="max-h-[180px] overflow-y-auto space-y-2 pr-1">
+                                            <div v-if="proxyDelayResults.length === 0" class="text-sm text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center">测速结果会显示在这里</div>
+                                            <div v-for="item in proxyDelayResults" :key="item.name" class="flex items-center justify-between gap-4 py-2.5 px-4 bg-white rounded-xl border border-slate-200 text-sm"><div class="flex-1 break-all text-slate-700 font-medium">{{ item.name }}</div><div class="shrink-0 font-black" :class="item.delay !== null ? 'text-emerald-600' : 'text-rose-500'">{{ item.delay !== null ? item.delay + ' ms' : '失败' }}</div></div>
+                                        </div>
+                                        <textarea readonly :value="proxyLogs.join('\n')" class="w-full h-[220px] appearance-none bg-slate-950 text-slate-100 rounded-2xl py-4 px-4 focus:outline-none shadow-inner font-mono text-xs leading-relaxed border border-slate-800"></textarea>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
 
                         <div v-show="currentTab === 'cloud'" class="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200 overflow-hidden">

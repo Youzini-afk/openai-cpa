@@ -78,7 +78,7 @@ createApp({
                 ai_base: true, cluster_url: true, proxy: true, clash_api: true,
                 clash_test: true, tg_token: false, tg_chatid: false, cpa_url: true, sub_url: true,
                 cluster_secret: false, hero_key: false, duck_token: false, duck_cookie: false,
-                luckmail: false,
+                luckmail: false, qg_pwd: false, qg_proxy: false,
                 temporam: false,
                 tmailor_token: false,
                 fvia_token: false,
@@ -96,6 +96,15 @@ createApp({
                 isLoading: false,
                 isGenerating: false
             },
+            proxyStatus: null,
+            proxyGroups: [],
+            proxyLogs: [],
+            proxyDelayResults: [],
+            selectedProxyGroup: '',
+            isProxyLoading: false,
+            isProxyActionLoading: false,
+            isProxyDelayLoading: false,
+            proxyStatusTimer: null,
             isLoadingSub2APIGroups: false,
             cloudAccounts: [],
             selectedCloud: [],
@@ -147,6 +156,7 @@ createApp({
     },
     beforeUnmount() {
         if(this.statsTimer) clearInterval(this.statsTimer);
+        if(this.proxyStatusTimer) clearInterval(this.proxyStatusTimer);
     },
 	computed: {
         totalPages() {
@@ -157,6 +167,16 @@ createApp({
         },
         mailboxTotalPages() {
             return Math.ceil(this.totalMailboxes / this.mailboxPageSize) || 1;
+        },
+        isEmbeddedProxyMode() {
+            return this.config?.proxy_backend?.mode === 'embedded_mihomo';
+        },
+        selectedProxyGroupData() {
+            return (this.proxyGroups || []).find(group => group.name === this.selectedProxyGroup) || null;
+        },
+        selectedProxyNodes() {
+            const group = this.selectedProxyGroupData;
+            return group?.all || [];
         }
     },
     methods: {
@@ -220,12 +240,15 @@ createApp({
                 this.evtSource = null;
             }
             if(this.statsTimer) clearInterval(this.statsTimer);
+            if(this.proxyStatusTimer) clearInterval(this.proxyStatusTimer);
         },
         async initApp() {
             await this.fetchConfig();
+            await this.loadProxyDashboard(false);
             this.fetchAccounts();
             this.initSSE();
             this.startStatsPolling();
+            this.startProxyStatusPolling();
             this.checkUpdate();
             if (this.config && this.config.reg_mode === 'extension') {
                 this.listenToExtension();
@@ -234,6 +257,58 @@ createApp({
         startStatsPolling() {
             if(this.statsTimer) clearTimeout(this.statsTimer);
             this.pollStats();
+        },
+        startProxyStatusPolling() {
+            if(this.proxyStatusTimer) clearTimeout(this.proxyStatusTimer);
+            const tick = async () => {
+                if (!this.isLoggedIn) return;
+                await this.loadProxyDashboard(false);
+                this.proxyStatusTimer = setTimeout(tick, 5000);
+            };
+            tick();
+        },
+        ensureProxyDefaults() {
+            if (!this.config.proxy_backend) {
+                this.config.proxy_backend = { mode: 'external_clash' };
+            }
+            if (!this.config.qg_dynamic_proxy) {
+                this.config.qg_dynamic_proxy = {};
+            }
+            if (this.config.qg_dynamic_proxy.enable === undefined) this.config.qg_dynamic_proxy.enable = false;
+            if (this.config.qg_dynamic_proxy.host === undefined) this.config.qg_dynamic_proxy.host = '';
+            if (this.config.qg_dynamic_proxy.port === undefined) this.config.qg_dynamic_proxy.port = 12259;
+            if (this.config.qg_dynamic_proxy.auth_key === undefined) this.config.qg_dynamic_proxy.auth_key = '';
+            if (this.config.qg_dynamic_proxy.auth_pwd === undefined) this.config.qg_dynamic_proxy.auth_pwd = '';
+            if (this.config.qg_dynamic_proxy.sticky_session === undefined) this.config.qg_dynamic_proxy.sticky_session = false;
+            if (this.config.qg_dynamic_proxy.channel === undefined) this.config.qg_dynamic_proxy.channel = '';
+            if (this.config.qg_dynamic_proxy.session_seconds === undefined) this.config.qg_dynamic_proxy.session_seconds = 120;
+            if (this.config.qg_dynamic_proxy.area_code === undefined) this.config.qg_dynamic_proxy.area_code = '';
+            if (!this.config.embedded_mihomo) {
+                this.config.embedded_mihomo = {};
+            }
+            if (this.config.embedded_mihomo.enable === undefined) this.config.embedded_mihomo.enable = false;
+            if (this.config.embedded_mihomo.subscription_url === undefined) this.config.embedded_mihomo.subscription_url = '';
+            if (this.config.embedded_mihomo.auto_update === undefined) this.config.embedded_mihomo.auto_update = false;
+            if (this.config.embedded_mihomo.update_interval_minutes === undefined) this.config.embedded_mihomo.update_interval_minutes = 60;
+            if (this.config.embedded_mihomo.mixed_port === undefined) this.config.embedded_mihomo.mixed_port = 7897;
+            if (this.config.embedded_mihomo.controller_port === undefined) this.config.embedded_mihomo.controller_port = 9097;
+            if (this.config.embedded_mihomo.secret === undefined) this.config.embedded_mihomo.secret = 'openai-cpa-mihomo';
+            if (this.config.embedded_mihomo.group_name === undefined) this.config.embedded_mihomo.group_name = '节点选择';
+            if (this.config.embedded_mihomo.test_url === undefined) this.config.embedded_mihomo.test_url = 'https://www.gstatic.com/generate_204';
+            if (this.config.embedded_mihomo.log_lines === undefined) this.config.embedded_mihomo.log_lines = 200;
+            if (!this.config.clash_proxy_pool) {
+                this.config.clash_proxy_pool = {};
+            }
+            if (this.config.clash_proxy_pool.enable === undefined) this.config.clash_proxy_pool.enable = false;
+            if (this.config.clash_proxy_pool.pool_mode === undefined) this.config.clash_proxy_pool.pool_mode = false;
+            if (this.config.clash_proxy_pool.fastest_mode === undefined) this.config.clash_proxy_pool.fastest_mode = false;
+            if (this.config.clash_proxy_pool.api_url === undefined) this.config.clash_proxy_pool.api_url = 'http://127.0.0.1:9097';
+            if (this.config.clash_proxy_pool.group_name === undefined) this.config.clash_proxy_pool.group_name = '节点选择';
+            if (this.config.clash_proxy_pool.secret === undefined) this.config.clash_proxy_pool.secret = '';
+            if (this.config.clash_proxy_pool.test_proxy_url === undefined) this.config.clash_proxy_pool.test_proxy_url = '';
+            if (!Array.isArray(this.config.clash_proxy_pool.blacklist)) {
+                this.config.clash_proxy_pool.blacklist = ['港', 'HK', '台', 'TW', '中国', 'CN'];
+            }
         },
         async pollStats() {
             if(!this.isLoggedIn) return;
@@ -346,10 +421,12 @@ createApp({
                 if (this.config.cluster_node_name === undefined) this.config.cluster_node_name = '';
                 if (this.config.cluster_master_url === undefined) this.config.cluster_master_url = '';
                 if (this.config.cluster_secret === undefined) this.config.cluster_secret = 'wenfxl666';
+                this.ensureProxyDefaults();
             } catch (e) {}
         },
         async saveConfig() {
             try {
+                this.ensureProxyDefaults();
                 if(this.config.clash_proxy_pool) {
                     this.config.clash_proxy_pool.blacklist = this.blacklistStr.split('\n').map(s => s.trim()).filter(s => s);
                 }
@@ -360,9 +437,167 @@ createApp({
                 const data = await res.json();
                 if(data.status === 'success') {
                     this.showToast(data.message, "success");
+                    await this.fetchConfig();
+                    await this.loadProxyDashboard(false);
                     this.pollStats();
                 } else { this.showToast("保存失败：" + data.message, "error"); }
             } catch (e) { this.showToast("保存失败网络异常", "error"); }
+        },
+        async loadProxyDashboard(showToast = false) {
+            if (!this.isLoggedIn) return;
+            try {
+                const res = await this.authFetch('/api/proxy/status');
+                const data = await res.json();
+                if (data.status !== 'success') {
+                    if (showToast) this.showToast(data.message || '代理状态获取失败', 'error');
+                    return;
+                }
+                this.proxyStatus = data;
+                if (this.config) {
+                    this.ensureProxyDefaults();
+                    if (this.isEmbeddedProxyMode) {
+                        if (!this.config.default_proxy || this.config.default_proxy.startsWith('http://127.0.0.1:')) {
+                            this.config.default_proxy = data.effective_default_proxy || this.config.default_proxy;
+                        }
+                    }
+                }
+                const groupsRes = await this.authFetch('/api/proxy/groups');
+                const groupsData = await groupsRes.json();
+                if (groupsData.status === 'success') {
+                    this.proxyGroups = groupsData.data?.groups || [];
+                    const groupNames = this.proxyGroups.map(group => group.name);
+                    this.selectedProxyGroup = (this.selectedProxyGroup && groupNames.includes(this.selectedProxyGroup))
+                        ? this.selectedProxyGroup
+                        : (groupsData.data?.selected_group || groupNames[0] || '');
+                    if (!this.selectedProxyGroup || !groupNames.includes(this.selectedProxyGroup)) {
+                        this.proxyDelayResults = [];
+                    }
+                }
+                if (this.isEmbeddedProxyMode) {
+                    const logLines = Number(this.config?.embedded_mihomo?.log_lines || 200);
+                    const logsRes = await this.authFetch(`/api/proxy/logs?limit=${encodeURIComponent(logLines)}`);
+                    const logsData = await logsRes.json();
+                    if (logsData.status === 'success') {
+                        this.proxyLogs = logsData.data?.lines || [];
+                    }
+                } else {
+                    this.proxyLogs = [];
+                }
+                if (showToast) this.showToast('代理状态已刷新', 'success');
+            } catch (e) {
+                if (showToast) this.showToast('代理状态获取失败', 'error');
+            }
+        },
+        async proxyCoreAction(action) {
+            this.isProxyActionLoading = true;
+            try {
+                const res = await this.authFetch(`/api/proxy/core/${action}`, { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    this.showToast(data.message || '操作成功', 'success');
+                    await this.loadProxyDashboard(false);
+                } else {
+                    this.showToast(data.message || '操作失败', 'error');
+                }
+            } catch (e) {
+                this.showToast('代理核心操作失败', 'error');
+            } finally {
+                this.isProxyActionLoading = false;
+            }
+        },
+        async importProxySubscription() {
+            const subscriptionUrl = (this.config?.embedded_mihomo?.subscription_url || '').trim();
+            if (!subscriptionUrl) {
+                this.showToast('请先填写订阅地址', 'warning');
+                return;
+            }
+            this.isProxyActionLoading = true;
+            try {
+                const res = await this.authFetch('/api/proxy/subscription/import', {
+                    method: 'POST',
+                    body: JSON.stringify({ subscription_url: subscriptionUrl })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    this.showToast(data.message || '订阅已导入', 'success');
+                    await this.fetchConfig();
+                    await this.loadProxyDashboard(false);
+                } else {
+                    this.showToast(data.message || '订阅导入失败', 'error');
+                }
+            } catch (e) {
+                this.showToast('订阅导入失败', 'error');
+            } finally {
+                this.isProxyActionLoading = false;
+            }
+        },
+        async updateProxySubscription() {
+            this.isProxyActionLoading = true;
+            try {
+                const res = await this.authFetch('/api/proxy/subscription/update', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    this.showToast(data.message || '订阅已更新', 'success');
+                    await this.loadProxyDashboard(false);
+                } else {
+                    this.showToast(data.message || '订阅更新失败', 'error');
+                }
+            } catch (e) {
+                this.showToast('订阅更新失败', 'error');
+            } finally {
+                this.isProxyActionLoading = false;
+            }
+        },
+        async changeEmbeddedGroup() {
+            if (!this.selectedProxyGroup) return;
+            this.proxyDelayResults = [];
+            this.showToast(`已切换当前策略组：${this.selectedProxyGroup}`, 'success');
+        },
+        async selectEmbeddedNode(nodeName) {
+            if (!this.selectedProxyGroup || !nodeName) return;
+            this.isProxyActionLoading = true;
+            try {
+                const res = await this.authFetch('/api/proxy/select', {
+                    method: 'POST',
+                    body: JSON.stringify({ group_name: this.selectedProxyGroup, proxy_name: nodeName })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    this.showToast(`节点已切换到 ${nodeName}`, 'success');
+                    this.proxyGroups = data.data?.groups || this.proxyGroups;
+                    await this.loadProxyDashboard(false);
+                } else {
+                    this.showToast(data.message || '节点切换失败', 'error');
+                }
+            } catch (e) {
+                this.showToast('节点切换失败', 'error');
+            } finally {
+                this.isProxyActionLoading = false;
+            }
+        },
+        async runProxyDelayTest() {
+            if (!this.selectedProxyGroup) {
+                this.showToast('请先选择策略组', 'warning');
+                return;
+            }
+            this.isProxyDelayLoading = true;
+            try {
+                const res = await this.authFetch('/api/proxy/delay-test', {
+                    method: 'POST',
+                    body: JSON.stringify({ group_name: this.selectedProxyGroup })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    this.proxyDelayResults = data.data?.results || [];
+                    this.showToast('延迟测试完成', 'success');
+                } else {
+                    this.showToast(data.message || '延迟测试失败', 'error');
+                }
+            } catch (e) {
+                this.showToast('延迟测试失败', 'error');
+            } finally {
+                this.isProxyDelayLoading = false;
+            }
         },
 		async fetchAccounts(isManual = false) {
             if (isManual) {
@@ -1499,6 +1734,46 @@ createApp({
             if (!joinTime) return '0s';
             const diff = this.nowTimestamp - Math.floor(joinTime);
             return this.formatDuration(diff);
+        },
+        buildQGDynamicProxyUrl(qgConfig = null, maskPassword = false) {
+            const conf = qgConfig || this.config?.qg_dynamic_proxy;
+            if (!conf || !conf.enable) return '';
+
+            let host = String(conf.host || '').trim();
+            let port = Number(conf.port || 12259);
+            const authKey = String(conf.auth_key || '').trim();
+            const authPwd = String(conf.auth_pwd || '').trim();
+            if (!host || !port || !authKey || !authPwd) return '';
+
+            try {
+                if (host.includes('://')) {
+                    const parsed = new URL(host);
+                    host = parsed.hostname || host;
+                    if (parsed.port) {
+                        port = Number(parsed.port);
+                    }
+                } else if (host.includes(':')) {
+                    const parts = host.split(':');
+                    if (parts.length === 2 && parts[0] && /^\d+$/.test(parts[1])) {
+                        host = parts[0];
+                        port = Number(parts[1]);
+                    }
+                }
+            } catch (e) {}
+
+            let username = authKey;
+            if (conf.sticky_session) {
+                const channel = String(conf.channel || '').trim();
+                const sessionSeconds = Math.max(1, Number(conf.session_seconds || 120));
+                const areaCode = String(conf.area_code || '').trim();
+                if (channel) username += `:C${channel}`;
+                if (sessionSeconds > 0) username += `:T${sessionSeconds}`;
+                if (areaCode) username += `:A${areaCode}`;
+            }
+
+            const encodedUser = encodeURIComponent(username);
+            const encodedPwd = encodeURIComponent(maskPassword ? '******' : authPwd);
+            return `http://${encodedUser}:${encodedPwd}@${host}:${port}`;
         },
         maskValue(val, type = 'auto') {
             if (!val) return '未配置';

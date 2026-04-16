@@ -29,6 +29,7 @@ from utils import config as cfg
 from utils import db_manager
 from utils.config import reload_all_configs, ts, format_docker_url
 from utils.email_providers.mail_service import mask_email
+from utils.proxy_manager import get_effective_default_proxy
 from utils.register import run, refresh_oauth_token as _refresh_oauth_token
 from utils.proxy_manager import smart_switch_node
 from utils.integrations.sub2api_client import Sub2APIClient
@@ -1251,7 +1252,8 @@ def main() -> None:
     parser.add_argument("--proxy", default=None, help="代理地址")
     # parser.add_argument("--once", action="store_true", help="只运行一次")
     args       = parser.parse_args()
-    args.proxy = cfg.DEFAULT_PROXY if cfg.DEFAULT_PROXY.strip() else None
+    effective_proxy = get_effective_default_proxy()
+    args.proxy = effective_proxy if str(effective_proxy or "").strip() else None
 
     if cfg.ENABLE_CPA_MODE:
         print("   当前状态: [ CPA 智能仓管模式 ] 已开启")

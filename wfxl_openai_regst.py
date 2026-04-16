@@ -20,6 +20,8 @@ from contextlib import asynccontextmanager
 
 from utils import core_engine, db_manager
 from utils.config import reload_all_configs
+from utils.embedded_mihomo import get_embedded_mihomo_manager
+from utils.proxy_manager import get_effective_default_proxy, is_embedded_mode
 
 from global_state import engine, log_history
 from routers import api_routes
@@ -33,6 +35,10 @@ async def lifespan(app: FastAPI):
         if engine.is_running():
             engine.stop()
     except Exception: pass
+    try:
+        get_embedded_mihomo_manager().stop()
+    except Exception:
+        pass
     print("💥 已强制斩断所有底层连接，进程秒退！", flush=True)
     print("="*65 + "\n", flush=True)
     os._exit(0)
@@ -59,6 +65,8 @@ async def healthz():
     return JSONResponse({
         "status": "ok",
         "running": engine.is_running(),
+        "proxy_mode": getattr(core_engine.cfg, "PROXY_BACKEND_MODE", "external_clash"),
+        "mihomo_running": get_embedded_mihomo_manager().is_running(),
         "data_dir": data_dir,
         "data_dir_exists": os.path.isdir(data_dir),
     })
@@ -74,7 +82,13 @@ def _worker_push_thread():
     def _internal_start():
         try: reload_all_configs()
         except: pass
-        args = DummyArgs(proxy=getattr(core_engine.cfg, 'DEFAULT_PROXY', None))
+        if is_embedded_mode():
+            try:
+                get_embedded_mihomo_manager().start()
+            except Exception as e:
+                print(f"[{core_engine.ts()}] [系统] ❌ 内置 Mihomo 启动失败: {e}")
+                return
+        args = DummyArgs(proxy=get_effective_default_proxy() or None)
         core_engine.run_stats.update({"success": 0, "failed": 0, "retries": 0, "pwd_blocked": 0, "phone_verify": 0, "start_time": time.time()})
         if getattr(core_engine.cfg, 'ENABLE_CPA_MODE', False): engine.start_cpa(args)
         elif getattr(core_engine.cfg, 'ENABLE_SUB2API_MODE', False): engine.start_sub2api(args)
@@ -194,6 +208,7 @@ def _worker_push_thread():
     asyncio.run(_ws_loop())
 
 threading.Thread(target=_worker_push_thread, daemon=True).start()
+get_embedded_mihomo_manager().ensure_background_worker()
 
 if __name__ == "__main__":
     try: reload_all_configs()

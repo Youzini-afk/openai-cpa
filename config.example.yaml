@@ -111,6 +111,38 @@ fvia:
 # openai注册时代理地址，例子：http://127.0.0.1:7897。如果是国外服务器此项可以不填
 default_proxy: ""
 
+qg_dynamic_proxy:
+  # 青果动态隧道代理，开启后会自动覆盖 default_proxy
+  enable: false
+  host: ""
+  port: 12259
+  auth_key: ""
+  auth_pwd: ""
+  # 是否启用同一IP保持一段时间的隧道参数
+  sticky_session: false
+  # 可选，通道名，例如 reg1
+  channel: ""
+  # 可选，会拼成 :T120
+  session_seconds: 120
+  # 可选，国家地区编码，例如美国 990100
+  area_code: ""
+
+proxy_backend:
+  # external_clash | embedded_mihomo
+  mode: external_clash
+
+embedded_mihomo:
+  enable: false
+  subscription_url: ""
+  auto_update: false
+  update_interval_minutes: 60
+  mixed_port: 7897
+  controller_port: 9097
+  secret: "openai-cpa-mihomo"
+  group_name: "节点选择"
+  test_url: "https://www.gstatic.com/generate_204"
+  log_lines: 200
+
 # 是否开启注册多线程并发 (true/false)
 enable_multi_thread_reg: false    
 # 注册时的最大并发线程数 (建议根据你的代理质量调整，不要设置过高)
@@ -118,7 +150,7 @@ reg_threads: 10
 
 
 
-# Clash 节点智能轮换（本地使用clash软件）
+# Clash 节点智能轮换（外接 Clash / 内置 Mihomo 共用的切点策略）
 clash_proxy_pool:
   # 【开关】是否在每次注册前自动通过 Clash 切换节点
   enable: false

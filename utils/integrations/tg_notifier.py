@@ -3,6 +3,7 @@ import requests
 import asyncio
 from utils import core_engine
 from utils import config as cfg
+from utils.proxy_manager import get_effective_default_proxy
 
 def _get_tg_config():
     try:
@@ -10,7 +11,7 @@ def _get_tg_config():
             "enable": cfg.TG_BOT.get("enable", False),
             "token": cfg.TG_BOT.get("token", ""),
             "chat_id": cfg.TG_BOT.get("chat_id", ""),
-            "proxy": getattr(cfg, 'DEFAULT_PROXY', None)
+            "proxy": get_effective_default_proxy() or None
         }
     except Exception:
         return {"enable": False}

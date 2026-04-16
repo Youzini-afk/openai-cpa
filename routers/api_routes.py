@@ -18,9 +18,11 @@ from typing import List, Optional, Any
 from cloudflare import Cloudflare
 from utils import core_engine, db_manager
 from utils.config import reload_all_configs
+from utils.embedded_mihomo import get_embedded_mihomo_manager
 from utils.integrations.sub2api_client import Sub2APIClient
 from utils.integrations.tg_notifier import send_tg_msg_async
 from utils.email_providers.gmail_oauth_handler import GmailOAuthHandler
+from utils.proxy_manager import build_qg_dynamic_proxy_url, get_effective_controller_url, get_effective_default_proxy, get_proxy_backend_mode, is_embedded_mode
 from curl_cffi import requests as cffi_requests
 from global_state import VALID_TOKENS, CLUSTER_NODES, NODE_COMMANDS, cluster_lock, log_history, engine, verify_token, worker_status
 import utils.config as cfg
@@ -103,6 +105,19 @@ class OutlookExchangeReq(BaseModel):
 class UpdateMailboxStatusReq(BaseModel):
     emails: list[str]
     status: int
+
+
+class ProxySubscriptionReq(BaseModel):
+    subscription_url: str
+
+
+class ProxySelectReq(BaseModel):
+    group_name: str
+    proxy_name: Optional[str] = None
+
+
+class ProxyDelayTestReq(BaseModel):
+    group_name: Optional[str] = ""
 # ==========================================
 # 辅助函数
 # ==========================================
@@ -122,6 +137,148 @@ def get_web_password():
     except Exception:
         pass
     return "admin"
+
+
+def load_config_data() -> dict:
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH, "r", encoding="utf-8") as handle:
+            return yaml.safe_load(handle) or {}
+    return {}
+
+
+def ensure_proxy_config_defaults(config_data: dict) -> dict:
+    def safe_int(value, default):
+        try:
+            return int(str(value).strip())
+        except Exception:
+            return default
+
+    if "qg_dynamic_proxy" not in config_data or not isinstance(config_data.get("qg_dynamic_proxy"), dict):
+        config_data["qg_dynamic_proxy"] = {}
+    qg_proxy = config_data["qg_dynamic_proxy"]
+    qg_proxy.setdefault("enable", False)
+    qg_proxy.setdefault("host", "")
+    qg_proxy.setdefault("port", 12259)
+    qg_proxy.setdefault("auth_key", "")
+    qg_proxy.setdefault("auth_pwd", "")
+    qg_proxy.setdefault("sticky_session", False)
+    qg_proxy.setdefault("channel", "")
+    qg_proxy.setdefault("session_seconds", 120)
+    qg_proxy.setdefault("area_code", "")
+
+    if "proxy_backend" not in config_data or not isinstance(config_data.get("proxy_backend"), dict):
+        config_data["proxy_backend"] = {"mode": "external_clash"}
+    config_data["proxy_backend"]["mode"] = str(config_data["proxy_backend"].get("mode", "external_clash") or "external_clash")
+
+    if "embedded_mihomo" not in config_data or not isinstance(config_data.get("embedded_mihomo"), dict):
+        config_data["embedded_mihomo"] = {}
+    embedded = config_data["embedded_mihomo"]
+    embedded.setdefault("enable", False)
+    embedded.setdefault("subscription_url", "")
+    embedded.setdefault("auto_update", False)
+    embedded.setdefault("update_interval_minutes", 60)
+    embedded.setdefault("mixed_port", 7897)
+    embedded.setdefault("controller_port", 9097)
+    embedded.setdefault("secret", "openai-cpa-mihomo")
+    embedded.setdefault("group_name", "节点选择")
+    embedded.setdefault("test_url", "https://www.gstatic.com/generate_204")
+    embedded.setdefault("log_lines", 200)
+
+    if "clash_proxy_pool" not in config_data or not isinstance(config_data.get("clash_proxy_pool"), dict):
+        config_data["clash_proxy_pool"] = {}
+    clash_pool = config_data["clash_proxy_pool"]
+    clash_pool.setdefault("enable", False)
+    clash_pool.setdefault("pool_mode", False)
+    clash_pool.setdefault("fastest_mode", False)
+    clash_pool.setdefault("api_url", "http://127.0.0.1:9097")
+    clash_pool.setdefault("group_name", "节点选择")
+    clash_pool.setdefault("secret", "")
+    clash_pool.setdefault("test_proxy_url", "")
+    clash_pool.setdefault("blacklist", ["港", "HK", "台", "TW", "中国", "CN"])
+    return config_data
+
+
+def save_config_data(new_config: dict) -> None:
+    with core_engine.cfg.CONFIG_FILE_LOCK:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as handle:
+            yaml.dump(new_config, handle, allow_unicode=True, sort_keys=False, default_flow_style=False)
+
+
+def update_proxy_config(mutator):
+    config_data = ensure_proxy_config_defaults(load_config_data())
+    mutator(config_data)
+    save_config_data(config_data)
+    reload_all_configs()
+    return config_data
+
+
+def ensure_embedded_proxy_ready():
+    if not is_embedded_mode():
+        return None
+    manager = get_embedded_mihomo_manager()
+    if manager.is_running():
+        return manager
+    manager.start()
+    return manager
+
+
+def get_proxy_controller_secret() -> str:
+    if is_embedded_mode():
+        return str(get_embedded_mihomo_manager().get_runtime_endpoints().get("secret") or "").strip()
+    clash_conf = (getattr(cfg, "_c", {}) or {}).get("clash_proxy_pool", {}) if hasattr(cfg, "_c") else {}
+    return str(clash_conf.get("secret", "") or "").strip()
+
+
+def request_proxy_controller(method: str, path: str, **kwargs):
+    controller_url = str(get_effective_controller_url() or "").strip().rstrip("/")
+    if not controller_url:
+        raise RuntimeError("未配置可用的代理控制器地址")
+    url = f"{controller_url}/{path.lstrip('/')}"
+    headers = dict(kwargs.pop("headers", {}) or {})
+    secret = get_proxy_controller_secret()
+    if secret and "Authorization" not in headers:
+        headers["Authorization"] = f"Bearer {secret}"
+    response = httpx.request(method, url, headers=headers, timeout=kwargs.pop("timeout", 10), **kwargs)
+    response.raise_for_status()
+    if not response.content:
+        return {}
+    content_type = response.headers.get("content-type", "")
+    if "application/json" in content_type:
+        return response.json()
+    return response.text
+
+
+def parse_proxy_groups_from_payload(payload: dict) -> dict:
+    proxies_map = payload.get("proxies", {}) if isinstance(payload, dict) else {}
+    groups = []
+    selected_group = ""
+    preferred_group = ""
+    if is_embedded_mode():
+        preferred_group = str(getattr(cfg, "EMBEDDED_MIHOMO_GROUP_NAME", "节点选择") or "节点选择").strip()
+    else:
+        clash_conf = (getattr(cfg, "_c", {}) or {}).get("clash_proxy_pool", {}) if hasattr(cfg, "_c") else {}
+        preferred_group = str(clash_conf.get("group_name", "节点选择") or "节点选择").strip()
+
+    for name, item in proxies_map.items():
+        if not isinstance(item, dict):
+            continue
+        proxy_type = str(item.get("type") or "")
+        if not any(flag in proxy_type.lower() for flag in ["selector", "urltest", "fallback", "loadbalance", "relay"]):
+            continue
+        groups.append({
+            "name": name,
+            "type": proxy_type,
+            "now": item.get("now") or "",
+            "all": item.get("all") or [],
+            "alive": item.get("alive", True),
+        })
+    groups.sort(key=lambda each: each.get("name", ""))
+    if groups:
+        selected_group = next((group["name"] for group in groups if preferred_group and preferred_group in group["name"]), groups[0]["name"])
+    return {
+        "groups": groups,
+        "selected_group": selected_group,
+    }
 
 def parse_cpa_usage_to_details(raw_usage: dict) -> dict:
     details = {"is_cpa": True}
@@ -214,7 +371,12 @@ async def start_task(token: str = Depends(verify_token)):
     except Exception as e:
         print(f"[{core_engine.ts()}] [警告] 启动重载提示: {e}")
 
-    default_proxy = getattr(core_engine.cfg, 'DEFAULT_PROXY', None)
+    try:
+        ensure_embedded_proxy_ready()
+    except Exception as e:
+        return {"status": "error", "message": f"内置 Mihomo 启动失败: {e}"}
+
+    default_proxy = get_effective_default_proxy()
     args = DummyArgs(proxy=default_proxy if default_proxy else None)
     core_engine.run_stats.update({"success": 0, "failed": 0, "retries": 0, "pwd_blocked": 0, "phone_verify": 0, "start_time": time.time()})
     if getattr(core_engine.cfg, 'ENABLE_CPA_MODE', False):
@@ -299,7 +461,11 @@ async def get_stats(token: str = Depends(verify_token)):
 @router.post("/api/start_check")
 async def start_check_api(token: str = Depends(verify_token)):
     if engine.is_running(): return {"code": 400, "message": "系统正在运行中，请先停止主任务！"}
-    default_proxy = getattr(core_engine.cfg, 'DEFAULT_PROXY', None)
+    try:
+        ensure_embedded_proxy_ready()
+    except Exception as e:
+        return {"code": 400, "message": f"内置 Mihomo 启动失败: {e}"}
+    default_proxy = get_effective_default_proxy()
     engine.start_check(DummyArgs(proxy=default_proxy if default_proxy else None))
     return {"code": 200, "message": "独立测活指令已下发！"}
 
@@ -328,10 +494,7 @@ async def restart_system(token: str = Depends(verify_token)):
 
 @router.get("/api/config")
 async def get_config(token: str = Depends(verify_token)):
-    config_data = {}
-    if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            config_data = yaml.safe_load(f) or {}
+    config_data = ensure_proxy_config_defaults(load_config_data())
     if isinstance(config_data.get("sub2api_mode"), dict):
         config_data["sub2api_mode"].pop("min_remaining_weekly_percent", None)
     config_data["web_password"] = get_web_password()
@@ -350,18 +513,209 @@ async def get_config(token: str = Depends(verify_token)):
 @router.post("/api/config")
 async def save_config(new_config: dict, token: str = Depends(verify_token)):
     try:
+        current_config = ensure_proxy_config_defaults(load_config_data())
         if isinstance(new_config.get("sub2api_mode"), dict):
             new_config["sub2api_mode"].pop("min_remaining_weekly_percent", None)
-        with core_engine.cfg.CONFIG_FILE_LOCK:
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                yaml.dump(new_config, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        try:
-            reload_all_configs()
-        except Exception:
-            pass
+        new_config = ensure_proxy_config_defaults(new_config)
+        save_config_data(new_config)
+        reload_all_configs()
+        proxy_changed = (
+            current_config.get("proxy_backend") != new_config.get("proxy_backend")
+            or current_config.get("embedded_mihomo") != new_config.get("embedded_mihomo")
+        )
+        if proxy_changed:
+            manager = get_embedded_mihomo_manager()
+            if is_embedded_mode():
+                if manager.is_running():
+                    manager.restart()
+            elif manager.is_running():
+                manager.stop()
         return {"status": "success", "message": "✅ 配置已成功保存！"}
     except Exception as e:
         return {"status": "error", "message": f"❌ 保存失败: {str(e)}"}
+
+
+@router.get("/api/proxy/status")
+async def get_proxy_status(token: str = Depends(verify_token)):
+    def safe_int(value, default):
+        try:
+            return int(str(value).strip())
+        except Exception:
+            return default
+
+    mode = get_proxy_backend_mode()
+    embedded_status = get_embedded_mihomo_manager().status()
+    qg_conf = ((getattr(cfg, "_c", {}) or {}).get("qg_dynamic_proxy", {}) or {})
+    return {
+        "status": "success",
+        "mode": mode,
+        "effective_default_proxy": get_effective_default_proxy(),
+        "effective_controller_url": get_effective_controller_url(),
+        "embedded": embedded_status,
+        "external": {
+            "controller_url": str(((getattr(cfg, "_c", {}) or {}).get("clash_proxy_pool", {}) or {}).get("api_url", "")).strip(),
+            "group_name": str(((getattr(cfg, "_c", {}) or {}).get("clash_proxy_pool", {}) or {}).get("group_name", "节点选择")).strip(),
+            "enable_switch": bool(((getattr(cfg, "_c", {}) or {}).get("clash_proxy_pool", {}) or {}).get("enable", False)),
+        },
+        "qg_dynamic_proxy": {
+            "enabled": bool(qg_conf.get("enable", False)),
+            "host": str(qg_conf.get("host", "") or "").strip(),
+            "port": safe_int(qg_conf.get("port", 12259), 12259),
+            "sticky_session": bool(qg_conf.get("sticky_session", False)),
+            "channel": str(qg_conf.get("channel", "") or "").strip(),
+            "session_seconds": safe_int(qg_conf.get("session_seconds", 120), 120),
+            "area_code": str(qg_conf.get("area_code", "") or "").strip(),
+            "effective_proxy": build_qg_dynamic_proxy_url(),
+        },
+    }
+
+
+@router.post("/api/proxy/core/start")
+async def proxy_core_start(token: str = Depends(verify_token)):
+    if not is_embedded_mode():
+        return {"status": "error", "message": "当前不是内置 Mihomo 模式"}
+    try:
+        status = get_embedded_mihomo_manager().start()
+        return {"status": "success", "message": "内置 Mihomo 已启动", "data": status}
+    except Exception as e:
+        return {"status": "error", "message": f"启动失败: {e}"}
+
+
+@router.post("/api/proxy/core/stop")
+async def proxy_core_stop(token: str = Depends(verify_token)):
+    try:
+        status = get_embedded_mihomo_manager().stop()
+        return {"status": "success", "message": "内置 Mihomo 已停止", "data": status}
+    except Exception as e:
+        return {"status": "error", "message": f"停止失败: {e}"}
+
+
+@router.post("/api/proxy/core/restart")
+async def proxy_core_restart(token: str = Depends(verify_token)):
+    if not is_embedded_mode():
+        return {"status": "error", "message": "当前不是内置 Mihomo 模式"}
+    try:
+        status = get_embedded_mihomo_manager().restart()
+        return {"status": "success", "message": "内置 Mihomo 已重启", "data": status}
+    except Exception as e:
+        return {"status": "error", "message": f"重启失败: {e}"}
+
+
+@router.post("/api/proxy/subscription/import")
+async def proxy_subscription_import(req: ProxySubscriptionReq, token: str = Depends(verify_token)):
+    try:
+        subscription_url = str(req.subscription_url or "").strip()
+        if not subscription_url.startswith("http://") and not subscription_url.startswith("https://"):
+            return {"status": "error", "message": "订阅地址必须以 http:// 或 https:// 开头"}
+
+        def apply_subscription(conf):
+            conf["proxy_backend"]["mode"] = "embedded_mihomo"
+            conf["embedded_mihomo"].update({
+                "subscription_url": subscription_url,
+                "enable": True,
+            })
+
+        update_proxy_config(apply_subscription)
+        manager = get_embedded_mihomo_manager()
+        data = manager.update_subscription(subscription_url=subscription_url, restart_if_running=manager.is_running(), reason="import")
+        return {"status": "success", "message": "订阅地址已保存", "data": data}
+    except Exception as e:
+        return {"status": "error", "message": f"导入订阅失败: {e}"}
+
+
+@router.post("/api/proxy/subscription/update")
+async def proxy_subscription_update(token: str = Depends(verify_token)):
+    if not is_embedded_mode():
+        return {"status": "error", "message": "当前不是内置 Mihomo 模式"}
+    try:
+        data = get_embedded_mihomo_manager().update_subscription(restart_if_running=True, reason="manual")
+        return {"status": "success", "message": "订阅已更新", "data": data}
+    except Exception as e:
+        return {"status": "error", "message": f"更新订阅失败: {e}"}
+
+
+@router.get("/api/proxy/groups")
+async def proxy_groups(token: str = Depends(verify_token)):
+    try:
+        if is_embedded_mode():
+            payload = get_embedded_mihomo_manager().get_groups()
+        else:
+            payload = parse_proxy_groups_from_payload(request_proxy_controller("GET", "/proxies"))
+            payload["running"] = True
+        return {"status": "success", "data": payload}
+    except Exception as e:
+        return {"status": "error", "message": f"获取代理组失败: {e}", "data": {"groups": [], "selected_group": ""}}
+
+
+@router.post("/api/proxy/select")
+async def proxy_select(req: ProxySelectReq, token: str = Depends(verify_token)):
+    try:
+        group_name = str(req.group_name or "").strip()
+        proxy_name = str(req.proxy_name or "").strip()
+        if not group_name:
+            return {"status": "error", "message": "缺少策略组名称"}
+
+        if is_embedded_mode():
+            update_proxy_config(lambda conf: conf["embedded_mihomo"].update({"group_name": group_name}))
+            data = get_embedded_mihomo_manager().select_proxy(group_name, proxy_name or None)
+        else:
+            if proxy_name:
+                encoded_group = urllib.parse.quote(group_name, safe="")
+                request_proxy_controller("PUT", f"/proxies/{encoded_group}", json={"name": proxy_name})
+            data = parse_proxy_groups_from_payload(request_proxy_controller("GET", "/proxies"))
+        return {"status": "success", "message": "代理节点已更新", "data": data}
+    except Exception as e:
+        return {"status": "error", "message": f"切换节点失败: {e}"}
+
+
+@router.post("/api/proxy/delay-test")
+async def proxy_delay_test(req: ProxyDelayTestReq, token: str = Depends(verify_token)):
+    try:
+        group_name = str(req.group_name or "").strip()
+        if is_embedded_mode():
+            data = get_embedded_mihomo_manager().test_group_delays(group_name or None)
+        else:
+            group_payload = parse_proxy_groups_from_payload(request_proxy_controller("GET", "/proxies"))
+            target_group = group_name or group_payload.get("selected_group") or ""
+            target = next((item for item in group_payload.get("groups", []) if item.get("name") == target_group), None)
+            if not target:
+                return {"status": "error", "message": "未找到指定策略组"}
+            test_url = "https://www.gstatic.com/generate_204"
+            headers = {}
+            secret = get_proxy_controller_secret()
+            if secret:
+                headers["Authorization"] = f"Bearer {secret}"
+            controller_url = get_effective_controller_url().rstrip("/")
+            results = []
+            for proxy_name in [item for item in list(target.get("all") or []) if str(item).upper() not in {"DIRECT", "REJECT"}]:
+                encoded_name = urllib.parse.quote(proxy_name, safe="")
+                delay = None
+                error = ""
+                try:
+                    response = httpx.get(f"{controller_url}/proxies/{encoded_name}/delay", headers=headers, params={"timeout": 3000, "url": test_url}, timeout=5)
+                    response.raise_for_status()
+                    payload = response.json()
+                    delay = payload.get("delay")
+                except Exception as exc:
+                    error = str(exc)
+                results.append({"name": proxy_name, "delay": delay if isinstance(delay, (int, float)) else None, "error": error})
+            results.sort(key=lambda each: (each["delay"] is None, each["delay"] if each["delay"] is not None else 999999))
+            data = {"running": True, "group_name": target_group, "test_url": test_url, "results": results}
+        return {"status": "success", "data": data}
+    except Exception as e:
+        return {"status": "error", "message": f"延迟测试失败: {e}"}
+
+
+@router.get("/api/proxy/logs")
+async def proxy_logs(limit: int = Query(200), token: str = Depends(verify_token)):
+    try:
+        if is_embedded_mode():
+            data = get_embedded_mihomo_manager().logs(limit=limit)
+        else:
+            data = {"running": False, "path": "", "lines": []}
+        return {"status": "success", "data": data}
+    except Exception as e:
+        return {"status": "error", "message": f"读取代理日志失败: {e}", "data": {"running": False, "path": "", "lines": []}}
 
 
 @router.post("/api/config/add_wildcard_dns")
@@ -370,7 +724,7 @@ async def add_wildcard_dns(req: CFSyncExistingReq, token: str = Depends(verify_t
         main_list = [d.strip() for d in req.sub_domains.split(",") if d.strip()]
         if not main_list: return {"status": "error", "message": "❌ 没有找到有效的主域名"}
 
-        proxy_url = getattr(core_engine.cfg, 'DEFAULT_PROXY', None)
+        proxy_url = get_effective_default_proxy()
         headers = {"X-Auth-Email": req.api_email, "X-Auth-Key": req.api_key, "Content-Type": "application/json"}
         client_kwargs = {"timeout": 30.0}
         if proxy_url: client_kwargs["proxy"] = proxy_url
@@ -660,7 +1014,7 @@ def process_cloud_action(req: CloudActionReq, token: str = Depends(verify_token)
 @router.get('/api/sms/balance')
 def api_get_sms_balance(token: str = Depends(verify_token)):
     from utils.integrations.hero_sms import hero_sms_get_balance
-    proxy_url = core_engine.cfg.DEFAULT_PROXY
+    proxy_url = get_effective_default_proxy()
     balance, err = hero_sms_get_balance(proxies={"http": proxy_url, "https": proxy_url} if proxy_url else None)
     return {"status": "success", "balance": f"{balance:.2f}"} if balance >= 0 else {"status": "error", "message": err}
 
@@ -668,7 +1022,7 @@ def api_get_sms_balance(token: str = Depends(verify_token)):
 @router.post('/api/sms/prices')
 def api_get_sms_prices(req: SMSPriceReq, token: str = Depends(verify_token)):
     from utils.integrations.hero_sms import _hero_sms_prices_by_service
-    proxy_url = core_engine.cfg.DEFAULT_PROXY
+    proxy_url = get_effective_default_proxy()
     rows = _hero_sms_prices_by_service(req.service,
                                        proxies={"http": proxy_url, "https": proxy_url} if proxy_url else None)
     return {"status": "success", "prices": rows} if rows else {"status": "error", "message": "无法获取价格或当前服务无库存"}
@@ -711,7 +1065,7 @@ async def exchange_gmail_code(req: GmailExchangeReq, token: str = Depends(verify
             stored_verifier = f.read().strip()
         success, msg = GmailOAuthHandler.save_token_from_code(GMAIL_CLIENT_SECRETS, req.code, GMAIL_TOKEN_PATH,
                                                               code_verifier=stored_verifier,
-                                                              proxy=getattr(core_engine.cfg, 'DEFAULT_PROXY', None))
+                                                              proxy=get_effective_default_proxy() or None)
         if success and os.path.exists(GMAIL_VERIFIER_PATH):
             os.remove(GMAIL_VERIFIER_PATH)
             return {"status": "success", "message": "✨ 授权成功！token.json 已保存在 data 目录。"}
@@ -1115,7 +1469,7 @@ async def exchange_outlook_oauth_code(req: OutlookExchangeReq, token: str = Depe
             "redirect_uri": "http://localhost"
         }
 
-        proxy_url = getattr(cfg, 'DEFAULT_PROXY', None)
+        proxy_url = get_effective_default_proxy()
         proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
         response = cffi_requests.post(token_url, data=payload, proxies=proxies, timeout=15, impersonate="chrome110")

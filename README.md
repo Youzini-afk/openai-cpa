@@ -128,6 +128,8 @@ pip install -r requirements.txt
 
 ### Proxy management and network resilience
 - **Clash / Mihomo node rotation**: Can switch outbound nodes through the Clash API before registration tasks.
+- **Built-in Mihomo mode**: Supports running an embedded Mihomo core inside the same service, including subscription import/update, core lifecycle control, group/node switching, delay testing, and log viewing directly from the Web Console.
+- **QG dynamic tunnel proxy**: The Web Console now includes a dedicated QG tunnel proxy form. After filling in the tunnel host, port, `AuthKey`, and `AuthPwd`, the runtime automatically builds the effective `default_proxy`.
 - **Fastest-node preferred mode**: Supports `fastest_mode: true` for latency-based preferred selection.
 - **Multi-threaded Clash proxy-pool mode**: Supports a multi-container / multi-port proxy pool via `clash_proxy_pool.pool_mode` + `warp_proxy_list`.
 - **Docker-aware proxy adaptation**: Automatically rewrites `127.0.0.1` / `localhost` to `host.docker.internal` inside containers when needed.
@@ -216,7 +218,9 @@ Important notes for cloud deployment:
 - Health check path: `/healthz`
 - Runtime data, SQLite database, and `config.yaml` are stored under `/app/data`
 - If `/app/data/config.yaml` does not exist, the app auto-generates it from `config.example.yaml`
-- Zeabur does not provide a local Clash / Mihomo daemon by default, so `default_proxy`, Clash API, and similar settings must point to externally reachable services or be left empty
+- The service now supports **embedded Mihomo** in Zeabur. Its runtime files, subscription cache, logs, and state are stored under `/app/data/mihomo`
+- If you still prefer an external Clash / Mihomo controller, keep `proxy_backend.mode=external_clash`
+- Optional build arg: `MIHOMO_VERSION` can pin a specific embedded Mihomo release; default behavior downloads the latest release compatible with the container architecture during image build
 
 Suggested Zeabur environment variables:
 
