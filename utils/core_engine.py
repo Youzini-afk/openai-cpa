@@ -32,6 +32,7 @@ from utils.email_providers.mail_service import mask_email
 from utils.proxy_manager import get_effective_default_proxy
 from utils.register import run, refresh_oauth_token as _refresh_oauth_token
 from utils.proxy_manager import smart_switch_node
+from utils.integrations.codex2api_client import Codex2APIClient
 from utils.integrations.sub2api_client import Sub2APIClient
 from utils.integrations.tg_notifier import send_tg_msg_sync
 
@@ -543,10 +544,14 @@ def handle_registration_result(result: Any, cpa_upload: bool = False, run_ctx: d
             if db_manager.save_account_to_db(account_email, password, token_json_str):
                 print(f"[{ts()}] [SUCCESS] 账号密码与 Token 已安全存入: {mask_email(account_email)}")
 
+        pushed_platforms = set()
+
         # CPA 云端上传
         if cpa_upload:
             success, up_msg = upload_to_cpa_integrated(token_data, cfg.CPA_API_URL, cfg.CPA_API_TOKEN)
             if success:
+                db_manager.mark_account_pushed(account_email, "cpa")
+                pushed_platforms.add("cpa")
                 print(f"[{ts()}] [SUCCESS] 补货凭证 {mask_email(account_email)} 云端上传成功！")
             else:
                 print(f"[{ts()}] [ERROR] 云端上传失败: {up_msg}")
@@ -571,8 +576,60 @@ def handle_registration_result(result: Any, cpa_upload: bool = False, run_ctx: d
         except Exception:
             success_text = f"🎉 注册成功\n账号: {final_email}\n密码: {final_password}\n时间: {current_time}\n(温馨提示: 您的TG单号自定义模板配置有误)"
 
+        if getattr(cfg, "AUTO_PUSH_CPA", False) or getattr(cfg, "AUTO_PUSH_SUB2API", False) or getattr(cfg, "AUTO_PUSH_CODEX2API", False):
+            if getattr(cfg, "ENABLE_SUB2API_MODE", False):
+                pushed_platforms.add("sub2api")
+            _auto_push_new_account(token_data, skip_platforms=pushed_platforms)
+
         send_tg_msg_sync(success_text)
     return ret_status
+
+
+def _auto_push_new_account(token_data: dict, skip_platforms: set[str] | None = None) -> None:
+    skip = {str(item).strip().lower() for item in (skip_platforms or set())}
+    account_email = str(token_data.get("email", "unknown")).strip()
+    if not account_email:
+        return
+
+    def _should_push(platform: str, enabled: bool) -> bool:
+        return bool(enabled) and platform not in skip
+
+    if _should_push("cpa", getattr(cfg, "AUTO_PUSH_CPA", False)) and cfg.CPA_API_URL and cfg.CPA_API_TOKEN:
+        try:
+            success, message = upload_to_cpa_integrated(token_data, cfg.CPA_API_URL, cfg.CPA_API_TOKEN)
+            if success:
+                db_manager.mark_account_pushed(account_email, "cpa")
+                print(f"[{ts()}] [SUCCESS] 自动推送 CPA 成功: {mask_email(account_email)}")
+            else:
+                print(f"[{ts()}] [ERROR] 自动推送 CPA 失败: {message}")
+        except Exception as exc:
+            print(f"[{ts()}] [ERROR] 自动推送 CPA 异常: {exc}")
+
+    if _should_push("sub2api", getattr(cfg, "AUTO_PUSH_SUB2API", False)) and cfg.SUB2API_URL and cfg.SUB2API_KEY:
+        try:
+            client = Sub2APIClient(api_url=cfg.SUB2API_URL, api_key=cfg.SUB2API_KEY)
+            success, message = client.add_account(token_data)
+            if success:
+                db_manager.mark_account_pushed(account_email, "sub2api")
+                print(f"[{ts()}] [SUCCESS] 自动推送 Sub2API 成功: {mask_email(account_email)}")
+            else:
+                print(f"[{ts()}] [ERROR] 自动推送 Sub2API 失败: {message}")
+        except Exception as exc:
+            print(f"[{ts()}] [ERROR] 自动推送 Sub2API 异常: {exc}")
+
+    if _should_push("codex2api", getattr(cfg, "AUTO_PUSH_CODEX2API", False)) and cfg.CODEX2API_URL and cfg.CODEX2API_ADMIN_KEY:
+        try:
+            client = Codex2APIClient(api_url=cfg.CODEX2API_URL, admin_key=cfg.CODEX2API_ADMIN_KEY)
+            push_payload = dict(token_data or {})
+            push_payload["source"] = getattr(cfg, "CODEX2API_PUSH_SOURCE", "register-oss")
+            success, message = client.push_account(push_payload)
+            if success:
+                db_manager.mark_account_pushed(account_email, "codex2api")
+                print(f"[{ts()}] [SUCCESS] 自动推送 Codex2API 成功: {mask_email(account_email)}")
+            else:
+                print(f"[{ts()}] [ERROR] 自动推送 Codex2API 失败: {message}")
+        except Exception as exc:
+            print(f"[{ts()}] [ERROR] 自动推送 Codex2API 异常: {exc}")
 
 def run_and_refresh(proxy, args, cpa_upload=False, skip_switch=False):
     proxy = format_docker_url(proxy)
@@ -1158,7 +1215,9 @@ async def sub2api_main_loop(args, async_stop_event: asyncio.Event):
                         token_dict = json.loads(result[0])
                         if hasattr(client, "add_account"):
                             ok, msg = client.add_account(token_dict)
-                            if ok: print(f"[{ts()}] [SUCCESS] Sub2API 补货入库成功")
+                            if ok:
+                                db_manager.mark_account_pushed(str(token_dict.get("email", "")).strip(), "sub2api")
+                                print(f"[{ts()}] [SUCCESS] Sub2API 补货入库成功")
                             else: print(f"[{ts()}] [ERROR] Sub2API 补货入库失败: {msg}")
                     return status
 

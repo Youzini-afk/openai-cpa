@@ -3,7 +3,7 @@ const { createApp } = Vue;
 createApp({
     data() {
         return {
-            appVersion: 'v10.1.7',
+            appVersion: 'v10.1.8',
             isLoggedIn: !!localStorage.getItem('auth_token'),
             loginPassword: '',
             currentTab: window.location.hash.replace('#', '') || 'console',
@@ -379,6 +379,9 @@ createApp({
                 if (!this.config.codex2api_mode) {
                     this.config.codex2api_mode = {};
                 }
+                if (!this.config.auto_push) {
+                    this.config.auto_push = {};
+                }
                 if (!this.config.tg_bot) {
                     this.config.tg_bot = { enable: false, token: '', chat_id: '' };
                 }
@@ -455,6 +458,15 @@ createApp({
                 }
                 if (this.config.codex2api_mode.threads === undefined) {
                     this.config.codex2api_mode.threads = 10;
+                }
+                if (this.config.auto_push.cpa === undefined) {
+                    this.config.auto_push.cpa = false;
+                }
+                if (this.config.auto_push.sub2api === undefined) {
+                    this.config.auto_push.sub2api = false;
+                }
+                if (this.config.auto_push.codex2api === undefined) {
+                    this.config.auto_push.codex2api = false;
                 }
                 if(this.config.clash_proxy_pool && Array.isArray(this.config.clash_proxy_pool.blacklist)) {
                     this.blacklistStr = this.config.clash_proxy_pool.blacklist.join('\n');

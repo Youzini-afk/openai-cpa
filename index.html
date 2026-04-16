@@ -2532,6 +2532,32 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 border-t-8 border-t-sky-500 bg-gradient-to-br from-sky-50/20 to-white" v-if="config.auto_push">
+                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 md:mb-8 border-b border-slate-100 pb-5 gap-4">
+                                    <h3 class="text-xl md:text-2xl font-black text-sky-700 tracking-tight flex items-center gap-2"><span>📮</span> 新号自动推送</h3>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <label class="relative inline-flex p-4 bg-emerald-50/50 rounded-xl border border-emerald-100 items-center cursor-pointer shadow-sm hover:bg-emerald-100/50 transition-colors group">
+                                        <input type="checkbox" v-model="config.auto_push.cpa" class="sr-only peer">
+                                        <div class="relative w-9 h-5 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-emerald-600 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                        <span class="text-sm font-black text-emerald-900 ml-3 tracking-wide">注册成功后自动推 CPA</span>
+                                    </label>
+                                    <label class="relative inline-flex p-4 bg-purple-50/50 rounded-xl border border-purple-100 items-center cursor-pointer shadow-sm hover:bg-purple-100/50 transition-colors group">
+                                        <input type="checkbox" v-model="config.auto_push.sub2api" class="sr-only peer">
+                                        <div class="relative w-9 h-5 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-purple-600 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                        <span class="text-sm font-black text-purple-900 ml-3 tracking-wide">注册成功后自动推 Sub2API</span>
+                                    </label>
+                                    <label class="relative inline-flex p-4 bg-amber-50/50 rounded-xl border border-amber-100 items-center cursor-pointer shadow-sm hover:bg-amber-100/50 transition-colors group">
+                                        <input type="checkbox" v-model="config.auto_push.codex2api" class="sr-only peer">
+                                        <div class="relative w-9 h-5 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-amber-500 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                        <span class="text-sm font-black text-amber-900 ml-3 tracking-wide">注册成功后自动推 Codex2API</span>
+                                    </label>
+                                </div>
+                                <div class="mt-5 rounded-2xl border border-sky-100 bg-sky-50/60 px-5 py-4 text-sm text-sky-900 leading-7 font-medium">
+                                    这里只控制“新注册成功的账号”是否自动推送。前提是对应平台的接口地址和密钥已经在上方配置好。
+                                </div>
+                            </div>
                         </div>
                         <div v-show="currentTab === 'notify'" v-if="config" class="space-y-5 md:space-y-8">
                             <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 border-t-8 border-t-sky-400 lg:max-w-3xl">

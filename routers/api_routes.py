@@ -222,6 +222,13 @@ def ensure_proxy_config_defaults(config_data: dict) -> dict:
     codex2api_mode.setdefault("push_source", "register-oss")
     codex2api_mode.setdefault("threads", 10)
 
+    if "auto_push" not in config_data or not isinstance(config_data.get("auto_push"), dict):
+        config_data["auto_push"] = {}
+    auto_push = config_data["auto_push"]
+    auto_push.setdefault("cpa", False)
+    auto_push.setdefault("sub2api", False)
+    auto_push.setdefault("codex2api", False)
+
     if "qg_dynamic_proxy" not in config_data or not isinstance(config_data.get("qg_dynamic_proxy"), dict):
         config_data["qg_dynamic_proxy"] = {}
     qg_proxy = config_data["qg_dynamic_proxy"]

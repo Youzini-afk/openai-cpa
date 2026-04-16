@@ -187,6 +187,9 @@ CODEX2API_URL: str = ""
 CODEX2API_ADMIN_KEY: str = ""
 CODEX2API_PUSH_SOURCE: str = "register-oss"
 CODEX2API_THREADS: int = 10
+AUTO_PUSH_CPA: bool = False
+AUTO_PUSH_SUB2API: bool = False
+AUTO_PUSH_CODEX2API: bool = False
 
 LUCKMAIL_PREFERRED_DOMAIN: str = ""
 LUCKMAIL_EMAIL_TYPE: str = ""
@@ -281,6 +284,7 @@ def reload_all_configs():
     global SUB2API_ACCOUNT_CONCURRENCY, SUB2API_ACCOUNT_LOAD_FACTOR, SUB2API_ACCOUNT_PRIORITY
     global SUB2API_ACCOUNT_RATE_MULTIPLIER, SUB2API_ACCOUNT_GROUP_IDS, SUB2API_ENABLE_WS_MODE
     global ENABLE_CODEX2API_MODE, CODEX2API_URL, CODEX2API_ADMIN_KEY, CODEX2API_PUSH_SOURCE, CODEX2API_THREADS
+    global AUTO_PUSH_CPA, AUTO_PUSH_SUB2API, AUTO_PUSH_CODEX2API
     global LUCKMAIL_API_KEY,LUCKMAIL_PREFERRED_DOMAIN,LUCKMAIL_EMAIL_TYPE,LUCKMAIL_VARIANT_MODE,LUCKMAIL_REUSE_PURCHASED, LUCKMAIL_TAG_ID
     global HERO_SMS_ENABLED, HERO_SMS_API_KEY, HERO_SMS_BASE_URL, HERO_SMS_COUNTRY, HERO_SMS_SERVICE
     global HERO_SMS_AUTO_PICK_COUNTRY, HERO_SMS_REUSE_PHONE, HERO_SMS_MAX_PRICE, HERO_SMS_VERIFY_ON_REGISTER
@@ -514,6 +518,10 @@ def reload_all_configs():
     CODEX2API_ADMIN_KEY = _codex2api.get("admin_key", "")
     CODEX2API_PUSH_SOURCE = str(_codex2api.get("push_source", "register-oss") or "register-oss").strip() or "register-oss"
     CODEX2API_THREADS = safe_int(_codex2api.get("threads", 10), 10, minimum=1)
+    _auto_push = _c.get("auto_push", {})
+    AUTO_PUSH_CPA = safe_bool(_auto_push.get("cpa", False), default=False)
+    AUTO_PUSH_SUB2API = safe_bool(_auto_push.get("sub2api", False), default=False)
+    AUTO_PUSH_CODEX2API = safe_bool(_auto_push.get("codex2api", False), default=False)
 
     _normal          = _c.get("normal_mode", {})
     NORMAL_SLEEP_MIN = _normal.get("sleep_min", 5)

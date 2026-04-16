@@ -288,6 +288,11 @@ codex2api_mode:
   push_source: "register-oss"
   threads: 10
 
+auto_push:
+  cpa: false
+  sub2api: false
+  codex2api: false
+
 hero_sms:
   enabled: false
   api_key: 
