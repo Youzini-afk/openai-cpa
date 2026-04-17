@@ -430,7 +430,12 @@ def _solve_turnstile(proxy: str = None) -> str:
                 print(f"[{cfg.ts()}] [SUCCESS] 2Captcha Turnstile 解题成功")
                 return token
 
-    print(f"[{cfg.ts()}] [INFO] 正在通过 Playwright 解 Turnstile...")
+    if not turnstile_service or not turnstile_api_key:
+        print(f"[{cfg.ts()}] [ERROR] Neuralwatt 注册必须配置验证码服务 (capsolver/2captcha)，Playwright 无头浏览器无法通过 Turnstile 人机验证")
+        print(f"[{cfg.ts()}] [ERROR] 请在「中转管仓 → Neuralwatt 配置」中填写 turnstile_service 和 turnstile_api_key")
+        return ""
+
+    print(f"[{cfg.ts()}] [INFO] 正在通过 Playwright 解 Turnstile (不推荐，成功率极低)...")
     token = _solve_turnstile_playwright(NW_REGISTER_URL, NW_TURNSTILE_SITEKEY, proxy)
     if token:
         print(f"[{cfg.ts()}] [SUCCESS] Playwright Turnstile 解题成功")

@@ -2664,9 +2664,9 @@
                                         <div>
                                             <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">Turnstile 解决方案</label>
                                             <select v-model="config.neuralwatt_mode.turnstile_service" class="w-full appearance-none bg-white border border-orange-200 text-slate-700 font-bold rounded-xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-colors shadow-sm cursor-pointer text-sm pr-10">
-                                                <option value="">Playwright (内置浏览器)</option>
-                                                <option value="capsolver">CapSolver (付费API)</option>
-                                                <option value="2captcha">2Captcha (付费API)</option>
+                                                <option value="capsolver">CapSolver (推荐)</option>
+                                                <option value="2captcha">2Captcha</option>
+                                                <option value="" disabled>Playwright (无头浏览器无法通过)</option>
                                             </select>
                                         </div>
                                         <div>
@@ -2716,7 +2716,7 @@
                                 </div>
 
                                 <div class="mt-5 rounded-2xl border border-orange-100 bg-orange-50/60 px-5 py-4 text-sm text-orange-900 leading-7 font-medium">
-                                    Neuralwatt 模式使用独立邮箱池，与 OpenAI 注册互不影响。注册流程：获取独立邮箱 → 解决 Turnstile → 提交注册 → 邮箱验证链接确认 → 登录获取 API Key (sk-xxx)。API 兼容 OpenAI 格式，base_url 为 <code class="bg-orange-100 px-1.5 py-0.5 rounded text-xs">https://api.neuralwatt.com/v1</code>。
+                                    Neuralwatt 模式使用独立邮箱池，与 OpenAI 注册互不影响。注册流程：获取独立邮箱 → 解决 Turnstile → 提交注册 → 邮箱验证链接确认 → 登录获取 API Key (sk-xxx)。API 兼容 OpenAI 格式，base_url 为 <code class="bg-orange-100 px-1.5 py-0.5 rounded text-xs">https://api.neuralwatt.com/v1</code>。<strong class="text-orange-700">注意：Turnstile 人机验证必须使用 CapSolver 或 2Captcha，Playwright 无头浏览器无法通过。</strong>
                                 </div>
                             </div>
                         </div>
