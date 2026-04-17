@@ -188,9 +188,30 @@ createApp({
         selectedProxyNodes() {
             const group = this.selectedProxyGroupData;
             return group?.all || [];
+        },
+        isNeuralwattMode() {
+            return this.config?.reg_mode === 'neuralwatt' || !!this.config?.neuralwatt_mode?.enable;
+        },
+        visibleTabs() {
+            if (this.isNeuralwattMode) {
+                return this.tabs.filter(tab => !['cloud', 'sms'].includes(tab.id));
+            }
+            return this.tabs;
         }
     },
     methods: {
+        ensureCurrentTabValidForMode() {
+            const visibleIds = (this.visibleTabs || []).map(tab => tab.id);
+            if (!visibleIds.includes(this.currentTab)) {
+                this.currentTab = this.isNeuralwattMode ? 'relay' : 'console';
+                window.location.hash = this.currentTab;
+            }
+            if (this.isNeuralwattMode) {
+                this.accountSubTab = 'nw_keys';
+            } else if (this.accountSubTab === 'nw_keys') {
+                this.accountSubTab = 'local';
+            }
+        },
         showToast(message, type = 'info') {
             const id = this.toastId++;
             this.toasts.push({ id, message, type });
@@ -255,6 +276,7 @@ createApp({
         },
         async initApp() {
             await this.fetchConfig();
+            this.ensureCurrentTabValidForMode();
             await this.loadProxyDashboard(false);
             this.fetchAccounts();
             this.fetchNwKeys(false);
@@ -748,12 +770,18 @@ createApp({
             this.fetchAccounts(false);
         },
         switchTab(tabId) {
+            const visibleIds = (this.visibleTabs || []).map(tab => tab.id);
+            if (!visibleIds.includes(tabId)) return;
             this.currentTab = tabId;
             window.location.hash = tabId;
 			if (tabId === 'console') {
 				this.pollStats(); 
 			}
             if (tabId === 'accounts') {
+                if (this.isNeuralwattMode) {
+                    this.accountSubTab = 'nw_keys';
+                    this.fetchNwKeys(false);
+                }
                 this.fetchAccounts();
             }
 			if (tabId === 'email') {
@@ -2243,11 +2271,14 @@ createApp({
                 this.config.neuralwatt_mode.enable = true;
                 this.config.cpa_mode.enable = false;
                 this.config.sub2api_mode.enable = false;
+                this.accountSubTab = 'nw_keys';
             } else {
                 this.config.neuralwatt_mode.enable = false;
+                if (this.accountSubTab === 'nw_keys') this.accountSubTab = 'local';
             }
 
             await this.saveConfig();
+            this.ensureCurrentTabValidForMode();
             this.showToast(`模式已切换为: ${mode === 'protocol' ? '纯协议模式' : mode === 'extension' ? '插件托管模式' : 'Neuralwatt 注册模式'}`, 'info');
 
             if (mode === 'extension') {

@@ -111,7 +111,7 @@
                     </span>
                 </div>
                 <nav class="flex flex-row md:flex-col overflow-x-auto md:overflow-y-auto px-3 py-3 md:px-4 md:py-6 gap-2 md:gap-1.5 md:space-y-1 hide-scrollbar flex-1 min-h-0">
-                    <button v-for="tab in tabs" :key="tab.id" @click="switchTab(tab.id)"
+                    <button v-for="tab in visibleTabs" :key="tab.id" @click="switchTab(tab.id)"
                             :class="['whitespace-nowrap shrink-0 md:w-full flex items-center gap-2.5 md:gap-3 px-4 py-2.5 md:py-3.5 text-xs md:text-sm font-bold rounded-xl transition-all duration-300',
                                      currentTab === tab.id ? 'bg-white text-indigo-600 shadow-[0_2px_10px_rgba(0,0,0,0.04)] border border-slate-200/60' : 'text-slate-500 hover:bg-slate-200/60 hover:text-slate-800 border border-transparent']">
                         <span class="text-base" :class="currentTab === tab.id ? 'scale-110 transition-transform drop-shadow-sm' : ''">{{ tab.icon }}</span>
@@ -2065,7 +2065,7 @@
                             </template>
                         </div>
 
-                        <div v-show="currentTab === 'cloud'" class="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200 overflow-hidden">
+                        <div v-show="currentTab === 'cloud' && !isNeuralwattMode" class="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200 overflow-hidden">
 
                             <div class="px-5 md:px-8 py-5 md:py-6 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-slate-50/50">
                                 <div class="flex flex-col sm:flex-row items-start sm:items-center gap-5">
@@ -2267,6 +2267,17 @@
                         </div>
 
 
+
+                        <div v-show="currentTab === 'cloud' && isNeuralwattMode" class="bg-white rounded-2xl shadow-sm border border-orange-200 overflow-hidden">
+                            <div class="px-6 md:px-8 py-8 md:py-10 bg-gradient-to-br from-orange-50/60 to-white">
+                                <h2 class="text-xl md:text-2xl font-black text-orange-700 tracking-tight flex items-center gap-2"><span>⚡</span> Neuralwatt 模式提示</h2>
+                                <p class="mt-4 text-sm md:text-base text-slate-600 leading-7 font-medium">当前为 Neuralwatt 注册模式，云端库存页不再展示 CPA/Sub2API/Codex2API 的远端账号列表。</p>
+                                <div class="mt-5 flex flex-wrap gap-3">
+                                    <button @click="switchTab('relay')" class="px-4 py-2 rounded-xl bg-orange-600 text-white font-bold hover:bg-orange-700 transition-all active:scale-95">前往 Neuralwatt 配置</button>
+                                    <button @click="switchTab('accounts'); accountSubTab = 'nw_keys'; fetchNwKeys(false)" class="px-4 py-2 rounded-xl bg-white border border-orange-200 text-orange-700 font-bold hover:bg-orange-50 transition-all active:scale-95">查看 NW Key 池</button>
+                                </div>
+                            </div>
+                        </div>
 
                         <div v-show="currentTab === 'relay'" v-if="config" class="space-y-5 md:space-y-8">
                             <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 border-t-8 border-t-emerald-500 bg-gradient-to-br from-emerald-50/20 to-white" v-if="config.cpa_mode">
