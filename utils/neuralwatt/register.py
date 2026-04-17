@@ -902,7 +902,7 @@ def run(proxy: Optional[str], run_ctx: dict = None) -> Tuple[Optional[str], Opti
 
     time.sleep(random.randint(3, 8))
 
-    print(f"[{cfg.ts()}] [INFO] ({mask_email(email)}) 正在登录获取 API Key...")
+    print(f"[{cfg.ts()}] [INFO] ({mask_email(email)}) 正在登录...")
     client = NeuralwattClient(email, password, proxies)
     login_ok, login_msg = client.login()
     if not login_ok:
@@ -916,20 +916,29 @@ def run(proxy: Optional[str], run_ctx: dict = None) -> Tuple[Optional[str], Opti
         }
         return json.dumps(token_data, ensure_ascii=False, separators=(",", ":")), password
 
-    print(f"[{cfg.ts()}] [INFO] ({mask_email(email)}) 正在创建 API Key...")
-    key_ok, key_result = client.create_api_key("auto-reg")
-
     api_key = ""
-    if key_ok and key_result.startswith("sk-"):
-        api_key = key_result
-        print(f"[{cfg.ts()}] [SUCCESS] ({mask_email(email)}) API Key 创建成功: {api_key[:8]}...")
+
+    if getattr(cfg, "NW_AUTO_CREATE_API_KEY", True):
+        print(f"[{cfg.ts()}] [INFO] ({mask_email(email)}) 正在创建 API Key...")
+        key_ok, key_result = client.create_api_key("auto-reg")
+
+        if key_ok and key_result.startswith("sk-"):
+            api_key = key_result
+            print(f"[{cfg.ts()}] [SUCCESS] ({mask_email(email)}) API Key 创建成功: {api_key[:8]}...")
+        else:
+            existing_keys = client.get_api_keys()
+            if existing_keys:
+                api_key = existing_keys[0]
+                print(f"[{cfg.ts()}] [SUCCESS] ({mask_email(email)}) 使用现有 API Key: {api_key[:8]}...")
+            else:
+                print(f"[{cfg.ts()}] [WARNING] ({mask_email(email)}) API Key 创建结果: {key_result}")
     else:
         existing_keys = client.get_api_keys()
         if existing_keys:
             api_key = existing_keys[0]
-            print(f"[{cfg.ts()}] [SUCCESS] ({mask_email(email)}) 使用现有 API Key: {api_key[:8]}...")
+            print(f"[{cfg.ts()}] [INFO] ({mask_email(email)}) 跳过创建，使用现有 API Key: {api_key[:8]}...")
         else:
-            print(f"[{cfg.ts()}] [WARNING] ({mask_email(email)}) API Key 创建结果: {key_result}")
+            print(f"[{cfg.ts()}] [WARNING] ({mask_email(email)}) 跳过创建且无现有 API Key")
 
     nw_cfg = getattr(cfg, "_c", {}).get("neuralwatt_mode", {})
     test_model = str(nw_cfg.get("test_model", "meta-llama/Llama-3.3-70B-Instruct")).strip()
