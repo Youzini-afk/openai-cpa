@@ -92,6 +92,7 @@ def _worker_push_thread():
         core_engine.run_stats.update({"success": 0, "failed": 0, "retries": 0, "pwd_blocked": 0, "phone_verify": 0, "start_time": time.time()})
         if getattr(core_engine.cfg, 'ENABLE_CPA_MODE', False): engine.start_cpa(args)
         elif getattr(core_engine.cfg, 'ENABLE_SUB2API_MODE', False): engine.start_sub2api(args)
+        elif getattr(core_engine.cfg, 'ENABLE_NEURALWATT_MODE', False): engine.start_neuralwatt(args)
         else: engine.start_normal(args)
 
     async def _ws_loop():

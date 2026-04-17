@@ -222,12 +222,27 @@ def ensure_proxy_config_defaults(config_data: dict) -> dict:
     codex2api_mode.setdefault("push_source", "register-oss")
     codex2api_mode.setdefault("threads", 10)
 
+    if "neuralwatt_mode" not in config_data or not isinstance(config_data.get("neuralwatt_mode"), dict):
+        config_data["neuralwatt_mode"] = {}
+    nw_mode = config_data["neuralwatt_mode"]
+    nw_mode.setdefault("enable", False)
+    nw_mode.setdefault("turnstile_service", "")
+    nw_mode.setdefault("turnstile_api_key", "")
+    nw_mode.setdefault("auto_create_api_key", True)
+    nw_mode.setdefault("test_model", "meta-llama/Llama-3.3-70B-Instruct")
+    nw_mode.setdefault("verify_max_attempts", 30)
+    nw_mode.setdefault("threads", 10)
+    nw_mode.setdefault("check_interval_minutes", 60)
+    nw_mode.setdefault("min_accounts_threshold", 20)
+    nw_mode.setdefault("batch_reg_count", 1)
+
     if "auto_push" not in config_data or not isinstance(config_data.get("auto_push"), dict):
         config_data["auto_push"] = {}
     auto_push = config_data["auto_push"]
     auto_push.setdefault("cpa", False)
     auto_push.setdefault("sub2api", False)
     auto_push.setdefault("codex2api", False)
+    auto_push.setdefault("neuralwatt", False)
 
     if "qg_dynamic_proxy" not in config_data or not isinstance(config_data.get("qg_dynamic_proxy"), dict):
         config_data["qg_dynamic_proxy"] = {}
@@ -502,6 +517,10 @@ async def start_task(token: str = Depends(verify_token)):
     elif getattr(core_engine.cfg, 'ENABLE_SUB2API_MODE', False):
         engine.start_sub2api(args)
         return {"status": "success", "message": "启动成功：已自动识别并开启 [Sub2API 仓管模式]"}
+    elif getattr(core_engine.cfg, 'ENABLE_NEURALWATT_MODE', False):
+        core_engine.run_stats["target"] = 0
+        engine.start_neuralwatt(args)
+        return {"status": "success", "message": "启动成功：已自动识别并开启 [Neuralwatt 仓管模式]"}
     else:
         core_engine.run_stats["target"] = core_engine.cfg.NORMAL_TARGET_COUNT
         engine.start_normal(args)
@@ -563,7 +582,8 @@ async def get_stats(token: str = Depends(verify_token)):
         current_mode = "插件托管 (古法)"
     else:
         current_mode = "CPA 仓管" if getattr(core_engine.cfg, 'ENABLE_CPA_MODE', False) else (
-            "Sub2Api 仓管" if getattr(core_engine.cfg, 'ENABLE_SUB2API_MODE', False) else "常规量产")
+            "Sub2Api 仓管" if getattr(core_engine.cfg, 'ENABLE_SUB2API_MODE', False) else (
+                "Neuralwatt 仓管" if getattr(core_engine.cfg, 'ENABLE_NEURALWATT_MODE', False) else "常规量产"))
 
     return {
         "success": stats["success"], "failed": stats["failed"], "retries": stats["retries"],
@@ -1028,6 +1048,12 @@ def account_action(data: dict, token: str = Depends(verify_token)):
                 "status": "error",
                 "message": f"Codex2API 推送失败: {resp}",
             }
+        elif action == "push_neuralwatt":
+            api_key_val = (token_data or {}).get("api_key", "")
+            if not api_key_val:
+                return {"status": "error", "message": "🚫 推送失败：该账号无 Neuralwatt API Key！"}
+            db_manager.mark_account_pushed(email, "neuralwatt")
+            return {"status": "success", "message": f"账号 {email} Neuralwatt API Key 已标记推送！"}
         return {"status": "error", "message": f"不支持的操作: {action}"}
     except Exception as e:
         return {"status": "error", "message": f"后端推送异常: {str(e)}"}

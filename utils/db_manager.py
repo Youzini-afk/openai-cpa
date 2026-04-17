@@ -11,6 +11,7 @@ ACCOUNT_PUSH_COLUMNS = {
     "cpa": "pushed_cpa_at",
     "sub2api": "pushed_sub2api_at",
     "codex2api": "pushed_codex2api_at",
+    "neuralwatt": "pushed_neuralwatt_at",
 }
 
 def ts() -> str:
@@ -66,6 +67,10 @@ def init_db():
             pass
         try:
             c.execute('ALTER TABLE accounts ADD COLUMN pushed_codex2api_at TIMESTAMP;')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute('ALTER TABLE accounts ADD COLUMN pushed_neuralwatt_at TIMESTAMP;')
         except sqlite3.OperationalError:
             pass
         conn.commit()
@@ -152,7 +157,7 @@ def delete_accounts_by_emails(emails: list) -> bool:
 def _build_account_push_filter(push_platform: str = "all", push_state: str = "all") -> tuple[str, list]:
     platform = str(push_platform or "all").strip().lower()
     state = str(push_state or "all").strip().lower()
-    if platform not in {"all", "cpa", "sub2api", "codex2api"}:
+    if platform not in {"all", "cpa", "sub2api", "codex2api", "neuralwatt"}:
         platform = "all"
     if state not in {"all", "pushed", "unpushed"}:
         state = "all"
@@ -200,7 +205,7 @@ def get_accounts_page(page: int = 1, page_size: int = 50, push_platform: str = "
 
             offset = (page - 1) * page_size
             query_sql = """
-                SELECT email, password, created_at, pushed_cpa_at, pushed_sub2api_at, pushed_codex2api_at
+                SELECT email, password, created_at, pushed_cpa_at, pushed_sub2api_at, pushed_codex2api_at, pushed_neuralwatt_at
                 FROM accounts
             """
             query_params = list(params)
@@ -218,6 +223,7 @@ def get_accounts_page(page: int = 1, page_size: int = 50, push_platform: str = "
                 "pushed_cpa_at": r[3],
                 "pushed_sub2api_at": r[4],
                 "pushed_codex2api_at": r[5],
+                "pushed_neuralwatt_at": r[6],
             } for r in rows]
             return {"total": total, "data": data}
     except Exception as e:

@@ -631,6 +631,17 @@ def _auto_push_new_account(token_data: dict, skip_platforms: set[str] | None = N
         except Exception as exc:
             print(f"[{ts()}] [ERROR] 自动推送 Codex2API 异常: {exc}")
 
+    if _should_push("neuralwatt", getattr(cfg, "AUTO_PUSH_NEURALWATT", False)):
+        try:
+            api_key = str(token_data.get("api_key", "") or "").strip()
+            if api_key:
+                db_manager.mark_account_pushed(account_email, "neuralwatt")
+                print(f"[{ts()}] [SUCCESS] Neuralwatt 账号已标记推送: {mask_email(account_email)} (sk-...{api_key[-4:]})")
+            else:
+                print(f"[{ts()}] [WARNING] Neuralwatt 自动推送跳过: 无有效 API Key")
+        except Exception as exc:
+            print(f"[{ts()}] [ERROR] 自动推送 Neuralwatt 异常: {exc}")
+
 def run_and_refresh(proxy, args, cpa_upload=False, skip_switch=False):
     proxy = format_docker_url(proxy)
     """切节点 → 注册 → 处理结果。"""
@@ -1333,6 +1344,66 @@ def main() -> None:
             print(f"\n[{ts()}] [INFO] 用户终止了系统运行。")
 
 
+def neuralwatt_main_loop(args, stop_event: threading.Event):
+    from utils.neuralwatt.register import run as nw_run
+
+    print(f"\n[{ts()}] [系统] Neuralwatt 仓管模式已激活")
+    print(f"   Turnstile 服务: {cfg.NW_TURNSTILE_SERVICE or 'playwright (默认)'}")
+    print(f"   并发线程: {cfg.NW_THREADS}")
+    print(f"   存量阈值: {cfg.NW_MIN_ACCOUNTS_THRESHOLD}")
+    print(f"   每次补货: {cfg.NW_BATCH_REG_COUNT}")
+    print("=" * 65)
+
+    while not stop_event.is_set() and not cfg.GLOBAL_STOP:
+        try:
+            proxy = args.proxy if hasattr(args, 'proxy') and args.proxy else get_effective_default_proxy()
+            proxy = format_docker_url(proxy)
+
+            result = None
+            run_ctx = {}
+            try:
+                result = nw_run(proxy, run_ctx=run_ctx)
+            except Exception as e:
+                print(f"[{ts()}] [ERROR] Neuralwatt 注册线程异常: {e}")
+
+            if getattr(cfg, 'GLOBAL_STOP', False):
+                break
+
+            if result and isinstance(result, tuple) and len(result) >= 2:
+                token_json_str, password = result
+                if token_json_str:
+                    with _stats_lock:
+                        run_stats["success"] += 1
+                    token_data = json.loads(token_json_str)
+                    account_email = token_data.get("email", "unknown")
+
+                    if db_manager.save_account_to_db(account_email, password, token_json_str):
+                        print(f"[{ts()}] [SUCCESS] Neuralwatt 账号已存入: {mask_email(account_email)}")
+
+                    api_key = token_data.get("api_key", "")
+                    if api_key:
+                        print(f"[{ts()}] [SUCCESS] Neuralwatt API Key: sk-...{api_key[-4:]}")
+
+                    pushed_platforms = set()
+                    _auto_push_new_account(token_data, skip_platforms=pushed_platforms)
+                else:
+                    with _stats_lock:
+                        run_stats["failed"] += 1
+            else:
+                with _stats_lock:
+                    run_stats["failed"] += 1
+
+            sleep_time = random.randint(cfg.NORMAL_SLEEP_MIN, cfg.NORMAL_SLEEP_MAX)
+            for _ in range(int(sleep_time * 10)):
+                if stop_event.is_set() or cfg.GLOBAL_STOP:
+                    break
+                time.sleep(0.1)
+
+        except Exception as e:
+            print(f"[{ts()}] [ERROR] Neuralwatt 主循环异常: {e}")
+            time.sleep(5)
+
+    print(f"[{ts()}] [系统] Neuralwatt 仓管模式已停止")
 class RegEngine:
     """GUI 用控制类，封装线程/协程生命周期。"""
 
@@ -1379,6 +1450,20 @@ class RegEngine:
         self.thread_stop_event.clear()
         self.current_thread = threading.Thread(
             target=self._run_sub2api_in_thread, args=(args,), daemon=True
+        )
+        self.current_thread.start()
+
+    def start_neuralwatt(self, args):
+        if self.is_running():
+            return
+        self._force_stopped = False
+        cfg.GLOBAL_STOP = False
+        cfg.POOL_EXHAUSTED = False
+        self.thread_stop_event.clear()
+        self.current_thread = threading.Thread(
+            target=neuralwatt_main_loop,
+            args=(args, self.thread_stop_event),
+            daemon=True,
         )
         self.current_thread.start()
 

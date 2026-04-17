@@ -288,10 +288,33 @@ codex2api_mode:
   push_source: "register-oss"
   threads: 10
 
+# Neuralwatt Cloud 注册模式配置
+neuralwatt_mode:
+  enable: false
+  # Turnstile 人机验证解决方案: capsolver / 2captcha / playwright / 留空默认playwright
+  turnstile_service: ""
+  # 验证码服务 API Key (capsolver 或 2captcha)
+  turnstile_api_key: ""
+  # 注册后是否自动创建 API Key
+  auto_create_api_key: true
+  # 测试模型 (用于验证 API Key 是否可用)
+  test_model: "meta-llama/Llama-3.3-70B-Instruct"
+  # 邮箱验证链接轮询最大尝试次数
+  verify_max_attempts: 30
+  # 并发线程数
+  threads: 10
+  # 巡检间隔 (分钟)
+  check_interval_minutes: 60
+  # 存量阈值
+  min_accounts_threshold: 20
+  # 每次补货数量
+  batch_reg_count: 1
+
 auto_push:
   cpa: false
   sub2api: false
   codex2api: false
+  neuralwatt: false
 
 hero_sms:
   enabled: false

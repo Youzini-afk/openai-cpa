@@ -190,6 +190,18 @@ CODEX2API_THREADS: int = 10
 AUTO_PUSH_CPA: bool = False
 AUTO_PUSH_SUB2API: bool = False
 AUTO_PUSH_CODEX2API: bool = False
+AUTO_PUSH_NEURALWATT: bool = False
+
+ENABLE_NEURALWATT_MODE: bool = False
+NW_TURNSTILE_SERVICE: str = ""
+NW_TURNSTILE_API_KEY: str = ""
+NW_AUTO_CREATE_API_KEY: bool = True
+NW_TEST_MODEL: str = "meta-llama/Llama-3.3-70B-Instruct"
+NW_VERIFY_MAX_ATTEMPTS: int = 30
+NW_THREADS: int = 10
+NW_CHECK_INTERVAL_MINUTES: int = 60
+NW_MIN_ACCOUNTS_THRESHOLD: int = 20
+NW_BATCH_REG_COUNT: int = 1
 
 LUCKMAIL_PREFERRED_DOMAIN: str = ""
 LUCKMAIL_EMAIL_TYPE: str = ""
@@ -284,7 +296,7 @@ def reload_all_configs():
     global SUB2API_ACCOUNT_CONCURRENCY, SUB2API_ACCOUNT_LOAD_FACTOR, SUB2API_ACCOUNT_PRIORITY
     global SUB2API_ACCOUNT_RATE_MULTIPLIER, SUB2API_ACCOUNT_GROUP_IDS, SUB2API_ENABLE_WS_MODE
     global ENABLE_CODEX2API_MODE, CODEX2API_URL, CODEX2API_ADMIN_KEY, CODEX2API_PUSH_SOURCE, CODEX2API_THREADS
-    global AUTO_PUSH_CPA, AUTO_PUSH_SUB2API, AUTO_PUSH_CODEX2API
+    global AUTO_PUSH_CPA, AUTO_PUSH_SUB2API, AUTO_PUSH_CODEX2API, AUTO_PUSH_NEURALWATT
     global LUCKMAIL_API_KEY,LUCKMAIL_PREFERRED_DOMAIN,LUCKMAIL_EMAIL_TYPE,LUCKMAIL_VARIANT_MODE,LUCKMAIL_REUSE_PURCHASED, LUCKMAIL_TAG_ID
     global HERO_SMS_ENABLED, HERO_SMS_API_KEY, HERO_SMS_BASE_URL, HERO_SMS_COUNTRY, HERO_SMS_SERVICE
     global HERO_SMS_AUTO_PICK_COUNTRY, HERO_SMS_REUSE_PHONE, HERO_SMS_MAX_PRICE, HERO_SMS_VERIFY_ON_REGISTER
@@ -301,6 +313,9 @@ def reload_all_configs():
     global CLUSTER_NODE_NAME, CLUSTER_MASTER_URL, CLUSTER_SECRET
     global REG_MODE
     global LOCAL_MS_ENABLE_FISSION, LOCAL_MS_MASTER_EMAIL, LOCAL_MS_PASSWORD, LOCAL_MS_CLIENT_ID, LOCAL_MS_REFRESH_TOKEN, LOCAL_MS_POOL_FISSION
+    global ENABLE_NEURALWATT_MODE, NW_TURNSTILE_SERVICE, NW_TURNSTILE_API_KEY, NW_AUTO_CREATE_API_KEY
+    global NW_TEST_MODEL, NW_VERIFY_MAX_ATTEMPTS, NW_THREADS, NW_CHECK_INTERVAL_MINUTES
+    global NW_MIN_ACCOUNTS_THRESHOLD, NW_BATCH_REG_COUNT
 
     def safe_int(value, default, minimum=None):
         try:
@@ -522,6 +537,19 @@ def reload_all_configs():
     AUTO_PUSH_CPA = safe_bool(_auto_push.get("cpa", False), default=False)
     AUTO_PUSH_SUB2API = safe_bool(_auto_push.get("sub2api", False), default=False)
     AUTO_PUSH_CODEX2API = safe_bool(_auto_push.get("codex2api", False), default=False)
+    AUTO_PUSH_NEURALWATT = safe_bool(_auto_push.get("neuralwatt", False), default=False)
+
+    _nw = _c.get("neuralwatt_mode", {})
+    ENABLE_NEURALWATT_MODE = _nw.get("enable", False)
+    NW_TURNSTILE_SERVICE = str(_nw.get("turnstile_service", "") or "").strip().lower()
+    NW_TURNSTILE_API_KEY = str(_nw.get("turnstile_api_key", "") or "").strip()
+    NW_AUTO_CREATE_API_KEY = safe_bool(_nw.get("auto_create_api_key", True), default=True)
+    NW_TEST_MODEL = str(_nw.get("test_model", "meta-llama/Llama-3.3-70B-Instruct") or "meta-llama/Llama-3.3-70B-Instruct").strip()
+    NW_VERIFY_MAX_ATTEMPTS = safe_int(_nw.get("verify_max_attempts", 30), 30, minimum=5)
+    NW_THREADS = safe_int(_nw.get("threads", 10), 10, minimum=1)
+    NW_CHECK_INTERVAL_MINUTES = safe_int(_nw.get("check_interval_minutes", 60), 60, minimum=1)
+    NW_MIN_ACCOUNTS_THRESHOLD = safe_int(_nw.get("min_accounts_threshold", 20), 20, minimum=1)
+    NW_BATCH_REG_COUNT = safe_int(_nw.get("batch_reg_count", 1), 1, minimum=1)
 
     _normal          = _c.get("normal_mode", {})
     NORMAL_SLEEP_MIN = _normal.get("sleep_min", 5)
