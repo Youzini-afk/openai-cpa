@@ -526,6 +526,67 @@
                             </div>
                         </div>
 
+                        <div class="mb-2 flex items-center gap-3 px-1" v-show="currentTab === 'accounts'">
+                            <button @click="accountSubTab = 'local'" :class="accountSubTab === 'local' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'" class="px-4 py-2 rounded-xl text-sm font-bold transition-all active:scale-95">本地账号库</button>
+                            <button @click="accountSubTab = 'nw_keys'; fetchNwKeys(false)" :class="accountSubTab === 'nw_keys' ? 'bg-orange-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'" class="px-4 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 flex items-center gap-1.5"><span>⚡</span> NW Key 池 <span class="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-md font-black">{{ nwKeyTotal }}</span></button>
+                        </div>
+
+                        <div v-if="currentTab === 'accounts' && accountSubTab === 'nw_keys'" class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                            <div class="px-5 md:px-8 py-4 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                                <h2 class="text-lg md:text-xl font-black text-orange-700 tracking-tight flex items-center gap-2"><span>⚡</span> Neuralwatt Key 池</h2>
+                                <div class="flex flex-wrap gap-2 items-center">
+                                    <select v-model="nwKeyStatusFilter" @change="nwKeyPage = 1; fetchNwKeys(false)" class="bg-white border border-slate-200 text-sm rounded-lg py-1.5 px-3 focus:outline-none focus:ring-2 focus:ring-orange-500/20 font-bold">
+                                        <option value="all">全部</option>
+                                        <option value="active">存活</option>
+                                        <option value="dead">失效</option>
+                                    </select>
+                                    <button @click="deleteSelectedNwKeys" :disabled="selectedNwKeys.length === 0" class="text-xs bg-rose-600 text-white px-4 py-2 rounded-xl hover:bg-rose-700 active:scale-95 transition-all shadow-md disabled:opacity-50 font-bold flex items-center gap-1"><span>🗑️</span> 删除</button>
+                                    <button @click="exportNwKeysToTxt" :disabled="selectedNwKeys.length === 0" class="text-xs bg-teal-600 text-white px-4 py-2 rounded-xl hover:bg-teal-700 active:scale-95 transition-all shadow-md disabled:opacity-50 font-bold flex items-center gap-1"><span>📄</span> 导出</button>
+                                    <button @click="fetchNwKeys(true)" class="text-xs bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-xl hover:bg-slate-50 active:scale-95 transition-all shadow-sm font-bold"><span>🔄</span></button>
+                                </div>
+                            </div>
+                            <div class="overflow-x-auto w-full min-h-[200px]">
+                                <table class="min-w-full divide-y divide-slate-100">
+                                    <thead class="bg-slate-50/80">
+                                        <tr>
+                                            <th class="px-4 py-3 text-left w-10"><input type="checkbox" @change="toggleAllNwKeys" :checked="selectedNwKeys.length === nwKeys.length && nwKeys.length > 0" class="form-checkbox w-4 h-4 text-orange-600 border-slate-300 rounded focus:ring-orange-500"></th>
+                                            <th class="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">#</th>
+                                            <th class="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">API Key</th>
+                                            <th class="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">邮箱</th>
+                                            <th class="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">API Base</th>
+                                            <th class="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">状态</th>
+                                            <th class="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest">入库时间</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-slate-50">
+                                        <tr v-if="nwKeys.length === 0">
+                                            <td colspan="7" class="px-6 py-12 text-center text-slate-400 font-medium bg-slate-50/30">暂无 Neuralwatt Key，注册后自动入库</td>
+                                        </tr>
+                                        <tr v-for="(nk, index) in nwKeys" :key="nk.id" class="hover:bg-orange-50/30 transition duration-200" :class="{'bg-orange-50/60': selectedNwKeys.some(k => k.id === nk.id)}">
+                                            <td class="px-4 py-3 whitespace-nowrap"><input type="checkbox" :value="nk" v-model="selectedNwKeys" class="form-checkbox w-4 h-4 text-orange-600 border-slate-300 rounded focus:ring-orange-500"></td>
+                                            <td class="px-4 py-3 whitespace-nowrap text-sm text-slate-400 font-mono">{{ (nwKeyPage - 1) * nwKeyPageSize + index + 1 }}</td>
+                                            <td class="px-4 py-3 whitespace-nowrap text-sm font-mono font-bold text-slate-700">{{ showAccountsPlaintext ? nk.api_key : (nk.api_key ? nk.api_key.substring(0, 8) + '...' : '-') }}</td>
+                                            <td class="px-4 py-3 whitespace-nowrap text-sm text-slate-600">{{ nk.email || '-' }}</td>
+                                            <td class="px-4 py-3 whitespace-nowrap text-xs text-slate-500 font-mono">{{ nk.api_base || '-' }}</td>
+                                            <td class="px-4 py-3 whitespace-nowrap">
+                                                <span v-if="nk.status === 0" class="px-2.5 py-1 rounded-md text-[10px] font-black bg-emerald-50 text-emerald-600 border border-emerald-200">存活</span>
+                                                <span v-else-if="nk.status === 2" class="px-2.5 py-1 rounded-md text-[10px] font-black bg-rose-50 text-rose-600 border border-rose-200">失效</span>
+                                                <span v-else class="px-2.5 py-1 rounded-md text-[10px] font-black bg-slate-50 text-slate-500 border border-slate-200">未知</span>
+                                            </td>
+                                            <td class="px-4 py-3 whitespace-nowrap text-xs text-slate-500 font-mono">{{ formatTime(nk.created_at) }}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="px-5 md:px-8 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-3 text-sm text-slate-500">
+                                <span>共 <span class="text-orange-600 font-black">{{ nwKeyTotal }}</span> 个 Key</span>
+                                <div class="flex gap-2">
+                                    <button @click="nwKeyPage > 1 && (nwKeyPage--, fetchNwKeys(false))" :disabled="nwKeyPage <= 1" class="px-3 py-1.5 rounded-lg text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">上一页</button>
+                                    <button @click="nwKeyPage++; fetchNwKeys(false)" :disabled="nwKeyPage * nwKeyPageSize >= nwKeyTotal" class="px-3 py-1.5 rounded-lg text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">下一页</button>
+                                </div>
+                            </div>
+                        </div>
+
                         <div v-show="currentTab === 'mailboxes'" class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative">
 
                             <div v-if="showImportMailboxModal" class="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">

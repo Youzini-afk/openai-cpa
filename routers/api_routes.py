@@ -989,6 +989,40 @@ async def get_accounts(
     return {"status": "success", "data": result["data"], "total": result["total"], "page": page, "page_size": page_size}
 
 
+@router.get("/api/nw_keys")
+async def get_nw_keys(
+    page: int = Query(1),
+    page_size: int = Query(50),
+    status: str = Query("all"),
+    token: str = Depends(verify_token),
+):
+    result = db_manager.get_nw_keys_page(page, page_size, status=status)
+    return {"status": "success", "data": result["data"], "total": result["total"], "page": page, "page_size": page_size}
+
+
+@router.post("/api/nw_keys/delete")
+async def delete_nw_keys(req: DeleteReq, token: str = Depends(verify_token)):
+    if not req.emails:
+        return {"status": "error", "message": "未收到任何要删除的 key"}
+    deleted = 0
+    for key_id_str in req.emails:
+        try:
+            if db_manager.delete_nw_key(int(key_id_str)):
+                deleted += 1
+        except (ValueError, TypeError):
+            pass
+    return {"status": "success", "message": f"成功删除 {deleted} 个 Neuralwatt key"}
+
+
+@router.post("/api/nw_keys/export")
+async def export_nw_keys(req: ExportReq, token: str = Depends(verify_token)):
+    if not req.emails:
+        return {"status": "error", "message": "未收到任何要导出的 key"}
+    keys = db_manager.get_nw_keys_page(1, 10000, status="all")["data"]
+    export_data = [k for k in keys if str(k.get("id", "")) in req.emails or k.get("api_key", "") in req.emails]
+    return {"status": "success", "data": export_data}
+
+
 @router.post("/api/accounts/export_selected")
 async def export_selected_accounts(req: ExportReq, token: str = Depends(verify_token)):
     if not req.emails: return {"status": "error", "message": "未收到任何要导出的账号"}

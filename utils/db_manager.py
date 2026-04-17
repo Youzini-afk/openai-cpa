@@ -73,6 +73,23 @@ def init_db():
             c.execute('ALTER TABLE accounts ADD COLUMN pushed_neuralwatt_at TIMESTAMP;')
         except sqlite3.OperationalError:
             pass
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS neuralwatt_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                api_key TEXT UNIQUE,
+                email TEXT,
+                password TEXT,
+                api_base TEXT DEFAULT 'https://api.neuralwatt.com/v1',
+                test_model TEXT DEFAULT '',
+                status INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_check_at TIMESTAMP
+            )
+        ''')
+        try:
+            c.execute('ALTER TABLE neuralwatt_keys ADD COLUMN last_check_at TIMESTAMP;')
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
     print(f"[{ts()}] [系统] 数据库模块初始化完成")
 
@@ -435,3 +452,92 @@ def clear_retry_master_status(email: str):
             conn.commit()
     except Exception as e:
         print(f"[{ts()}] [DB_ERROR] 清除 {email} 的 retry_master 状态失败: {e}")
+
+
+def save_nw_key(api_key: str, email: str = "", password: str = "", api_base: str = "https://api.neuralwatt.com/v1", test_model: str = "") -> bool:
+    try:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO neuralwatt_keys (api_key, email, password, api_base, test_model) VALUES (?, ?, ?, ?, ?)",
+                (api_key, email, password, api_base, test_model),
+            )
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"[{ts()}] [DB_ERROR] Neuralwatt key 保存失败: {e}")
+        return False
+
+
+def get_nw_keys_page(page: int = 1, page_size: int = 50, status: str = "all") -> dict:
+    try:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            c = conn.cursor()
+            where = ""
+            params: list = []
+            if status == "active":
+                where = "WHERE status = 0"
+            elif status == "dead":
+                where = "WHERE status = 2"
+            c.execute(f"SELECT COUNT(*) FROM neuralwatt_keys {where}")
+            total = c.fetchone()[0]
+            offset = (page - 1) * page_size
+            c.execute(
+                f"SELECT id, api_key, email, password, api_base, test_model, status, created_at, last_check_at FROM neuralwatt_keys {where} ORDER BY id DESC LIMIT ? OFFSET ?",
+                (*params, page_size, offset),
+            )
+            rows = c.fetchall()
+            data = [
+                {
+                    "id": r[0],
+                    "api_key": r[1],
+                    "email": r[2] or "",
+                    "password": r[3] or "",
+                    "api_base": r[4] or "",
+                    "test_model": r[5] or "",
+                    "status": r[6],
+                    "created_at": r[7],
+                    "last_check_at": r[8],
+                }
+                for r in rows
+            ]
+            return {"total": total, "data": data}
+    except Exception as e:
+        print(f"[{ts()}] [DB_ERROR] Neuralwatt key 查询失败: {e}")
+        return {"total": 0, "data": []}
+
+
+def delete_nw_key(key_id: int) -> bool:
+    try:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.execute("DELETE FROM neuralwatt_keys WHERE id = ?", (key_id,))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"[{ts()}] [DB_ERROR] Neuralwatt key 删除失败: {e}")
+        return False
+
+
+def update_nw_key_status(api_key: str, status: int) -> bool:
+    try:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.execute("UPDATE neuralwatt_keys SET status = ? WHERE api_key = ?", (status, api_key))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"[{ts()}] [DB_ERROR] Neuralwatt key 状态更新失败: {e}")
+        return False
+
+
+def count_nw_keys(status: str = "all") -> int:
+    try:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            c = conn.cursor()
+            if status == "active":
+                c.execute("SELECT COUNT(*) FROM neuralwatt_keys WHERE status = 0")
+            elif status == "dead":
+                c.execute("SELECT COUNT(*) FROM neuralwatt_keys WHERE status = 2")
+            else:
+                c.execute("SELECT COUNT(*) FROM neuralwatt_keys")
+            return c.fetchone()[0]
+    except Exception:
+        return 0

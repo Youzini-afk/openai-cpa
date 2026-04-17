@@ -56,6 +56,13 @@ createApp({
             warpListStr: "",
             accounts: [],
             selectedAccounts: [],
+            accountSubTab: 'local',
+            selectedNwKeys: [],
+            nwKeys: [],
+            nwKeyPage: 1,
+            nwKeyPageSize: 20,
+            nwKeyTotal: 0,
+            nwKeyStatusFilter: 'all',
             accountPushPlatformFilter: 'all',
             accountPushStateFilter: 'all',
 			currentPage: 1,
@@ -250,6 +257,7 @@ createApp({
             await this.fetchConfig();
             await this.loadProxyDashboard(false);
             this.fetchAccounts();
+            this.fetchNwKeys(false);
             this.initSSE();
             this.startStatsPolling();
             this.startProxyStatusPolling();
@@ -1096,6 +1104,45 @@ createApp({
             this.showToast(`批量标记推送完毕！`, "success");
             this.selectedAccounts = [];
             this.fetchAccounts(false);
+        },
+        async fetchNwKeys(showToast = true) {
+            try {
+                const res = await this.authFetch(`/api/nw_keys?page=${this.nwKeyPage}&page_size=${this.nwKeyPageSize}&status=${this.nwKeyStatusFilter}`);
+                const data = await res.json();
+                if (data.status === 'success') {
+                    this.nwKeys = data.data || [];
+                    this.nwKeyTotal = data.total || 0;
+                    this.selectedNwKeys = [];
+                    if (showToast) this.showToast("NW Key 池已刷新", "success");
+                }
+            } catch (e) { console.error("fetchNwKeys error:", e); }
+        },
+        changeNwKeyPage(page) { this.nwKeyPage = page; this.fetchNwKeys(false); },
+        changeNwKeyPageSize() { this.nwKeyPage = 1; this.fetchNwKeys(false); },
+        toggleAllNwKeys(event) {
+            if (event.target.checked) this.selectedNwKeys = [...this.nwKeys];
+            else this.selectedNwKeys = [];
+        },
+        async deleteSelectedNwKeys() {
+            if (this.selectedNwKeys.length === 0) return;
+            const confirmed = await this.customConfirm(`确定删除选中的 ${this.selectedNwKeys.length} 个 Neuralwatt Key？`);
+            if (!confirmed) return;
+            try {
+                await this.authFetch('/api/nw_keys/delete', {
+                    method: 'POST', body: JSON.stringify({ emails: this.selectedNwKeys.map(k => String(k.id)) })
+                });
+                this.showToast("删除成功", "success");
+                this.selectedNwKeys = [];
+                this.fetchNwKeys(false);
+            } catch (e) { this.showToast("删除失败", "error"); }
+        },
+        async exportNwKeysToTxt() {
+            if (this.selectedNwKeys.length === 0) return;
+            const lines = this.selectedNwKeys.map(k => `${k.api_key}----${k.email}----${k.password}----${k.api_base}`).join('\n');
+            const blob = new Blob([lines], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = 'neuralwatt_keys.txt'; a.click();
+            URL.revokeObjectURL(url);
         },
         async triggerAccountAction(account, action) {
             if (action === 'push' && !this.config.cpa_mode.enable) {

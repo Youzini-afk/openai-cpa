@@ -953,4 +953,18 @@ def run(proxy: Optional[str], run_ctx: dict = None) -> Tuple[Optional[str], Opti
         "login_status": "ok" if login_ok else "failed",
         "key_status": "ok" if api_key else "pending",
     }
+
+    if api_key:
+        try:
+            from utils import db_manager
+            db_manager.save_nw_key(
+                api_key=api_key,
+                email=email,
+                password=password,
+                api_base=f"{NW_API_BASE}/v1",
+                test_model=test_model,
+            )
+        except Exception:
+            pass
+
     return json.dumps(token_data, ensure_ascii=False, separators=(",", ":")), password
