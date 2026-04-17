@@ -85,7 +85,8 @@ createApp({
                 temporam: false,
                 tmailor_token: false,
                 fvia_token: false,
-                master_rt: false
+                master_rt: false,
+                nw_turnstile_key: false
             },
 
             toasts: [],
@@ -379,6 +380,9 @@ createApp({
                 if (!this.config.codex2api_mode) {
                     this.config.codex2api_mode = {};
                 }
+                if (!this.config.neuralwatt_mode) {
+                    this.config.neuralwatt_mode = {};
+                }
                 if (!this.config.auto_push) {
                     this.config.auto_push = {};
                 }
@@ -459,6 +463,36 @@ createApp({
                 if (this.config.codex2api_mode.threads === undefined) {
                     this.config.codex2api_mode.threads = 10;
                 }
+                if (this.config.neuralwatt_mode.enable === undefined) {
+                    this.config.neuralwatt_mode.enable = false;
+                }
+                if (this.config.neuralwatt_mode.turnstile_service === undefined) {
+                    this.config.neuralwatt_mode.turnstile_service = '';
+                }
+                if (this.config.neuralwatt_mode.turnstile_api_key === undefined) {
+                    this.config.neuralwatt_mode.turnstile_api_key = '';
+                }
+                if (this.config.neuralwatt_mode.auto_create_api_key === undefined) {
+                    this.config.neuralwatt_mode.auto_create_api_key = true;
+                }
+                if (this.config.neuralwatt_mode.test_model === undefined) {
+                    this.config.neuralwatt_mode.test_model = 'meta-llama/Llama-3.3-70B-Instruct';
+                }
+                if (this.config.neuralwatt_mode.verify_max_attempts === undefined) {
+                    this.config.neuralwatt_mode.verify_max_attempts = 30;
+                }
+                if (this.config.neuralwatt_mode.threads === undefined) {
+                    this.config.neuralwatt_mode.threads = 10;
+                }
+                if (this.config.neuralwatt_mode.check_interval_minutes === undefined) {
+                    this.config.neuralwatt_mode.check_interval_minutes = 60;
+                }
+                if (this.config.neuralwatt_mode.min_accounts_threshold === undefined) {
+                    this.config.neuralwatt_mode.min_accounts_threshold = 20;
+                }
+                if (this.config.neuralwatt_mode.batch_reg_count === undefined) {
+                    this.config.neuralwatt_mode.batch_reg_count = 1;
+                }
                 if (this.config.auto_push.cpa === undefined) {
                     this.config.auto_push.cpa = false;
                 }
@@ -467,6 +501,9 @@ createApp({
                 }
                 if (this.config.auto_push.codex2api === undefined) {
                     this.config.auto_push.codex2api = false;
+                }
+                if (this.config.auto_push.neuralwatt === undefined) {
+                    this.config.auto_push.neuralwatt = false;
                 }
                 if(this.config.clash_proxy_pool && Array.isArray(this.config.clash_proxy_pool.blacklist)) {
                     this.blacklistStr = this.config.clash_proxy_pool.blacklist.join('\n');
@@ -923,11 +960,17 @@ createApp({
                     } else {
                         this.isRunning = true;
                         this.currentTab = 'console';
-                        this.showToast("已启动【协议】模式", "success");
-                        let mode = 'normal';
-                        if (this.config?.cpa_mode?.enable) mode = 'cpa';
-                        if (this.config?.sub2api_mode?.enable) mode = 'sub2api';
-                        await this.startTask(mode);
+
+                        if (this.config?.reg_mode === 'neuralwatt' || this.config?.neuralwatt_mode?.enable) {
+                            this.showToast("已启动【Neuralwatt】模式", "success");
+                            await this.startTask('neuralwatt');
+                        } else {
+                            let mode = 'normal';
+                            if (this.config?.cpa_mode?.enable) mode = 'cpa';
+                            if (this.config?.sub2api_mode?.enable) mode = 'sub2api';
+                            this.showToast("已启动【协议】模式", "success");
+                            await this.startTask(mode);
+                        }
                     }
                 }
             } finally {
@@ -1036,6 +1079,24 @@ createApp({
             this.selectedAccounts = [];
             this.fetchAccounts(false);
         },
+        async bulkPushNeuralwatt() {
+            if (this.selectedAccounts.length === 0) return;
+            const confirmed = await this.customConfirm(`确定标记推送到 Neuralwatt？`);
+            if (!confirmed) return;
+            this.currentTab = 'console';
+            for (let i = 0; i < this.selectedAccounts.length; i++) {
+                const acc = this.selectedAccounts[i];
+                try {
+                    await this.authFetch('/api/account/action', {
+                        method: 'POST', body: JSON.stringify({ email: acc.email, action: 'push_neuralwatt' })
+                    });
+                } catch (e) {}
+                await new Promise(r => setTimeout(r, 500));
+            }
+            this.showToast(`批量标记推送完毕！`, "success");
+            this.selectedAccounts = [];
+            this.fetchAccounts(false);
+        },
         async triggerAccountAction(account, action) {
             if (action === 'push' && !this.config.cpa_mode.enable) {
                 this.showToast("🚫 无法推送：请先配置 CPA 参数！", "warning"); return;
@@ -1045,6 +1106,9 @@ createApp({
             }
             if (action === 'push_codex2api' && !this.config.codex2api_mode.enable) {
                 this.showToast("🚫 无法推送：请先配置 Codex2API 参数！", "warning"); return;
+            }
+            if (action === 'push_neuralwatt' && !this.config.neuralwatt_mode?.enable) {
+                this.showToast("🚫 无法推送：请先开启 Neuralwatt 模式！", "warning"); return;
             }
             this.currentTab = 'console';
             try {
@@ -2128,8 +2192,16 @@ createApp({
             if (!this.config) return;
             this.config.reg_mode = mode;
 
+            if (mode === 'neuralwatt') {
+                this.config.neuralwatt_mode.enable = true;
+                this.config.cpa_mode.enable = false;
+                this.config.sub2api_mode.enable = false;
+            } else {
+                this.config.neuralwatt_mode.enable = false;
+            }
+
             await this.saveConfig();
-            this.showToast(`模式已切换为: ${mode === 'protocol' ? '纯协议模式' : '插件托管模式'}`, 'info');
+            this.showToast(`模式已切换为: ${mode === 'protocol' ? '纯协议模式' : mode === 'extension' ? '插件托管模式' : 'Neuralwatt 注册模式'}`, 'info');
 
             if (mode === 'extension') {
                 this.listenToExtension();
@@ -2140,7 +2212,7 @@ createApp({
                 }
                 this.isExtConnected = false;
                 window.postMessage({ type: "CMD_STOP_WORKER" }, "*");
-                console.log("🛑 [总控] 已进入协议模式，切断插件链路。");
+                console.log("🛑 [总控] 已退出插件模式，切断插件链路。");
             }
         },
         async fetchMailboxes(isManual = false) {

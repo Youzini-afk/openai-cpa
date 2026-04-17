@@ -148,7 +148,7 @@
                         <div v-if="config" class="w-full md:w-auto">
                             <div class="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                                 <span class="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-widest ml-1 sm:hidden">运行模式切换</span>
-                                <div class="bg-slate-100 p-1 rounded-xl flex w-full sm:w-64 shadow-inner border border-slate-200">
+                                <div class="bg-slate-100 p-1 rounded-xl flex w-full sm:w-auto shadow-inner border border-slate-200">
                                     <button @click="changeRegMode('protocol')"
                                             :class="['flex-1 py-2 px-3 rounded-lg text-xs md:text-sm font-bold transition-all',
                                                      config.reg_mode === 'protocol' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700']">
@@ -158,6 +158,11 @@
                                             :class="['flex-1 py-2 px-3 rounded-lg text-xs md:text-sm font-bold transition-all',
                                                      config.reg_mode === 'extension' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-500 hover:text-slate-700']">
                                         古法
+                                    </button>
+                                    <button @click="changeRegMode('neuralwatt')"
+                                            :class="['flex-1 py-2 px-3 rounded-lg text-xs md:text-sm font-bold transition-all',
+                                                     config.reg_mode === 'neuralwatt' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700']">
+                                        Neuralwatt
                                     </button>
                                 </div>
                             </div>
@@ -426,6 +431,9 @@
                                     <button @click="bulkPushCodex2API" :disabled="selectedAccounts.length === 0" class="text-xs md:text-sm bg-amber-600 text-white px-4 md:px-5 py-2 rounded-xl hover:bg-amber-700 active:scale-95 transition-all shadow-md shadow-amber-500/20 disabled:opacity-50 font-bold flex items-center gap-2">
                                         <span>🧩</span> Codex
                                     </button>
+                                    <button @click="bulkPushNeuralwatt" :disabled="selectedAccounts.length === 0" class="text-xs md:text-sm bg-orange-600 text-white px-4 md:px-5 py-2 rounded-xl hover:bg-orange-700 active:scale-95 transition-all shadow-md shadow-orange-500/20 disabled:opacity-50 font-bold flex items-center gap-2">
+                                        <span>⚡</span> NW
+                                    </button>
                                     <button @click="fetchAccounts(true)" class="text-xs md:text-sm bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl hover:bg-slate-50 active:scale-95 transition-all shadow-sm font-bold flex items-center justify-center">
                                         <span class="text-base">🔄</span>
                                     </button>
@@ -438,6 +446,7 @@
                                     <button @click="applyAccountPushFilters('cpa', null)" :class="accountPushPlatformFilter === 'cpa' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-700 border-emerald-200'" class="px-3 py-1.5 rounded-lg border text-xs font-black transition-all active:scale-95">CPA</button>
                                     <button @click="applyAccountPushFilters('sub2api', null)" :class="accountPushPlatformFilter === 'sub2api' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-700 border-purple-200'" class="px-3 py-1.5 rounded-lg border text-xs font-black transition-all active:scale-95">Sub</button>
                                     <button @click="applyAccountPushFilters('codex2api', null)" :class="accountPushPlatformFilter === 'codex2api' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-700 border-amber-200'" class="px-3 py-1.5 rounded-lg border text-xs font-black transition-all active:scale-95">Codex</button>
+                                    <button @click="applyAccountPushFilters('neuralwatt', null)" :class="accountPushPlatformFilter === 'neuralwatt' ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-orange-700 border-orange-200'" class="px-3 py-1.5 rounded-lg border text-xs font-black transition-all active:scale-95">NW</button>
                                 </div>
                                 <div class="flex flex-wrap gap-2 items-center">
                                     <span class="text-xs font-black text-slate-400 uppercase tracking-widest">推送状态</span>
@@ -480,13 +489,15 @@
                                                     <span v-if="acc.pushed_cpa_at" class="px-2.5 py-1 rounded-md text-[10px] md:text-xs font-black bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-sm">CPA 已推</span>
                                                     <span v-if="acc.pushed_sub2api_at" class="px-2.5 py-1 rounded-md text-[10px] md:text-xs font-black bg-purple-50 text-purple-700 border border-purple-200 shadow-sm">Sub 已推</span>
                                                     <span v-if="acc.pushed_codex2api_at" class="px-2.5 py-1 rounded-md text-[10px] md:text-xs font-black bg-amber-50 text-amber-700 border border-amber-200 shadow-sm">Codex 已推</span>
-                                                    <span v-if="!acc.pushed_cpa_at && !acc.pushed_sub2api_at && !acc.pushed_codex2api_at" class="px-2.5 py-1 rounded-md text-[10px] md:text-xs font-black bg-slate-50 text-slate-500 border border-slate-200 shadow-sm">未推送</span>
+                                                    <span v-if="acc.pushed_neuralwatt_at" class="px-2.5 py-1 rounded-md text-[10px] md:text-xs font-black bg-orange-50 text-orange-700 border border-orange-200 shadow-sm">NW 已推</span>
+                                                    <span v-if="!acc.pushed_cpa_at && !acc.pushed_sub2api_at && !acc.pushed_codex2api_at && !acc.pushed_neuralwatt_at" class="px-2.5 py-1 rounded-md text-[10px] md:text-xs font-black bg-slate-50 text-slate-500 border border-slate-200 shadow-sm">未推送</span>
                                                 </div>
                                             </td>
                                             <td class="px-5 md:px-8 py-4 whitespace-nowrap text-center text-sm font-bold flex gap-2 justify-center">
                                                 <button @click="triggerAccountAction(acc, 'push')" class="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-lg active:scale-95 transition-all shadow-sm">推CPA</button>
                                                 <button @click="triggerAccountAction(acc, 'push_sub2api')" class="text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-3 py-1.5 rounded-lg active:scale-95 transition-all shadow-sm">推Sub</button>
                                                 <button @click="triggerAccountAction(acc, 'push_codex2api')" class="text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-lg active:scale-95 transition-all shadow-sm">推Codex</button>
+                                                <button @click="triggerAccountAction(acc, 'push_neuralwatt')" class="text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 px-3 py-1.5 rounded-lg active:scale-95 transition-all shadow-sm">推NW</button>
                                             </td>
                                         </tr>
                                     </tbody>
@@ -2537,26 +2548,105 @@
                                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 md:mb-8 border-b border-slate-100 pb-5 gap-4">
                                     <h3 class="text-xl md:text-2xl font-black text-sky-700 tracking-tight flex items-center gap-2"><span>📮</span> 新号自动推送</h3>
                                 </div>
-                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <label class="relative inline-flex p-4 bg-emerald-50/50 rounded-xl border border-emerald-100 items-center cursor-pointer shadow-sm hover:bg-emerald-100/50 transition-colors group">
-                                        <input type="checkbox" v-model="config.auto_push.cpa" class="sr-only peer">
-                                        <div class="relative w-9 h-5 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-emerald-600 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
-                                        <span class="text-sm font-black text-emerald-900 ml-3 tracking-wide">注册成功后自动推 CPA</span>
-                                    </label>
-                                    <label class="relative inline-flex p-4 bg-purple-50/50 rounded-xl border border-purple-100 items-center cursor-pointer shadow-sm hover:bg-purple-100/50 transition-colors group">
-                                        <input type="checkbox" v-model="config.auto_push.sub2api" class="sr-only peer">
-                                        <div class="relative w-9 h-5 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-purple-600 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
-                                        <span class="text-sm font-black text-purple-900 ml-3 tracking-wide">注册成功后自动推 Sub2API</span>
-                                    </label>
-                                    <label class="relative inline-flex p-4 bg-amber-50/50 rounded-xl border border-amber-100 items-center cursor-pointer shadow-sm hover:bg-amber-100/50 transition-colors group">
-                                        <input type="checkbox" v-model="config.auto_push.codex2api" class="sr-only peer">
-                                        <div class="relative w-9 h-5 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-amber-500 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
-                                        <span class="text-sm font-black text-amber-900 ml-3 tracking-wide">注册成功后自动推 Codex2API</span>
-                                    </label>
-                                </div>
+                                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                     <label class="relative inline-flex p-4 bg-emerald-50/50 rounded-xl border border-emerald-100 items-center cursor-pointer shadow-sm hover:bg-emerald-100/50 transition-colors group">
+                                         <input type="checkbox" v-model="config.auto_push.cpa" class="sr-only peer">
+                                         <div class="relative w-9 h-5 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-emerald-600 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                         <span class="text-sm font-black text-emerald-900 ml-3 tracking-wide">注册成功后自动推 CPA</span>
+                                     </label>
+                                     <label class="relative inline-flex p-4 bg-purple-50/50 rounded-xl border border-purple-100 items-center cursor-pointer shadow-sm hover:bg-purple-100/50 transition-colors group">
+                                         <input type="checkbox" v-model="config.auto_push.sub2api" class="sr-only peer">
+                                         <div class="relative w-9 h-5 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-purple-600 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                         <span class="text-sm font-black text-purple-900 ml-3 tracking-wide">注册成功后自动推 Sub2API</span>
+                                     </label>
+                                     <label class="relative inline-flex p-4 bg-amber-50/50 rounded-xl border border-amber-100 items-center cursor-pointer shadow-sm hover:bg-amber-100/50 transition-colors group">
+                                         <input type="checkbox" v-model="config.auto_push.codex2api" class="sr-only peer">
+                                         <div class="relative w-9 h-5 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-amber-500 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                         <span class="text-sm font-black text-amber-900 ml-3 tracking-wide">注册成功后自动推 Codex2API</span>
+                                     </label>
+                                     <label class="relative inline-flex p-4 bg-orange-50/50 rounded-xl border border-orange-100 items-center cursor-pointer shadow-sm hover:bg-orange-100/50 transition-colors group">
+                                         <input type="checkbox" v-model="config.auto_push.neuralwatt" class="sr-only peer">
+                                         <div class="relative w-9 h-5 shrink-0 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-orange-500 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                         <span class="text-sm font-black text-orange-900 ml-3 tracking-wide">注册成功后自动推 Neuralwatt</span>
+                                     </label>
+                                 </div>
                                 <div class="mt-5 rounded-2xl border border-sky-100 bg-sky-50/60 px-5 py-4 text-sm text-sky-900 leading-7 font-medium">
-                                    这里只控制“新注册成功的账号”是否自动推送。前提是对应平台的接口地址和密钥已经在上方配置好。
+                                    这里只控制"新注册成功的账号"是否自动推送。前提是对应平台的接口地址和密钥已经在上方配置好。
                                 </div>
+                            </div>
+
+                            <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 border-t-8 border-t-orange-500 bg-gradient-to-br from-orange-50/20 to-white" v-if="config.neuralwatt_mode">
+                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 md:mb-8 border-b border-slate-100 pb-5 gap-4">
+                                    <h3 class="text-xl md:text-2xl font-black text-orange-700 tracking-tight flex items-center gap-2"><span>⚡</span> Neuralwatt Cloud 注册模式</h3>
+                                    <div class="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+                                        <label class="relative inline-flex bg-white px-4 py-2.5 md:px-5 md:py-3 rounded-xl cursor-pointer hover:bg-orange-50 transition-colors shadow-sm border border-orange-200 w-full sm:w-auto items-center justify-center group">
+                                            <input type="checkbox" v-model="config.neuralwatt_mode.enable" @change="config.neuralwatt_mode.enable ? (config.cpa_mode.enable = false, config.sub2api_mode.enable = false, config.reg_mode = 'neuralwatt') : (config.reg_mode = 'protocol')" class="sr-only peer">
+                                            <div class="relative w-11 h-6 shrink-0 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all after:shadow-sm peer-checked:bg-orange-500 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                            <span class="font-black text-orange-900 text-sm md:text-base ml-3 tracking-wide">主开关：Neuralwatt 模式</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8" :class="{'opacity-50 pointer-events-none grayscale-[50%] transition-opacity duration-300': !config.neuralwatt_mode.enable}">
+                                    <div class="col-span-1 space-y-5 bg-slate-50/80 p-5 md:p-6 rounded-2xl border border-slate-200 shadow-inner">
+                                        <div>
+                                            <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">Turnstile 解决方案</label>
+                                            <select v-model="config.neuralwatt_mode.turnstile_service" class="w-full appearance-none bg-white border border-orange-200 text-slate-700 font-bold rounded-xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-colors shadow-sm cursor-pointer text-sm pr-10">
+                                                <option value="">Playwright (内置浏览器)</option>
+                                                <option value="capsolver">CapSolver (付费API)</option>
+                                                <option value="2captcha">2Captcha (付费API)</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">验证码服务 API Key</label>
+                                            <div class="relative">
+                                                <input :type="showPwd.nw_turnstile_key ? 'text' : 'password'" v-model="config.neuralwatt_mode.turnstile_api_key" class="w-full appearance-none bg-white border border-orange-200 text-slate-700 rounded-xl py-3 px-4 pr-10 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-colors shadow-sm font-mono text-sm" placeholder="选 Playwright 可留空">
+                                                <button @click="showPwd.nw_turnstile_key = !showPwd.nw_turnstile_key" class="absolute right-4 top-1/2 -translate-y-1/2 text-lg text-slate-400 hover:text-orange-600 focus:outline-none transition-transform hover:scale-110">
+                                                    {{ showPwd.nw_turnstile_key ? '👁️' : '🙈' }}
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="pt-4 border-t border-slate-200/60 mt-2">
+                                            <label class="relative inline-flex p-4 bg-white rounded-xl border border-orange-100 items-center cursor-pointer w-full hover:bg-orange-50/50 transition-colors shadow-sm group">
+                                                <input type="checkbox" v-model="config.neuralwatt_mode.auto_create_api_key" class="sr-only peer">
+                                                <div class="relative w-9 h-5 shrink-0 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-orange-600 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                                <span class="ml-3 text-sm font-black text-orange-800 tracking-wide">注册后自动创建 API Key</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-span-1 lg:col-span-2 grid grid-cols-2 gap-5 md:gap-6">
+                                        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-orange-300 transition-colors">
+                                            <label class="block text-[11px] text-slate-500 font-black mb-2 uppercase tracking-wider">库存报警阈值</label>
+                                            <input type="number" v-model.number="config.neuralwatt_mode.min_accounts_threshold" class="w-full appearance-none bg-slate-50 border-none text-slate-800 font-black text-xl md:text-2xl rounded-lg py-2 px-3 focus:outline-none focus:ring-0 transition-colors text-center shadow-inner">
+                                        </div>
+                                        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-orange-300 transition-colors">
+                                            <label class="block text-[11px] text-orange-600 font-black mb-2 uppercase tracking-wider">单次补发量</label>
+                                            <input type="number" v-model.number="config.neuralwatt_mode.batch_reg_count" class="w-full appearance-none bg-orange-50 border-none text-orange-700 font-black text-xl md:text-2xl rounded-lg py-2 px-3 focus:outline-none focus:ring-0 transition-colors text-center shadow-inner">
+                                        </div>
+                                        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-orange-300 transition-colors">
+                                            <label class="block text-[11px] text-slate-500 font-black mb-2 uppercase tracking-wider">巡检间隔(分)</label>
+                                            <input type="number" v-model.number="config.neuralwatt_mode.check_interval_minutes" class="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-700 font-bold rounded-lg py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-colors shadow-sm text-center">
+                                        </div>
+                                        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-orange-300 transition-colors">
+                                            <label class="block text-[11px] text-slate-500 font-black mb-2 uppercase tracking-wider">并发线程数</label>
+                                            <input type="number" v-model.number="config.neuralwatt_mode.threads" class="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-700 font-bold rounded-lg py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-colors shadow-sm text-center">
+                                        </div>
+                                        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-orange-300 transition-colors">
+                                            <label class="block text-[11px] text-slate-500 font-black mb-2 uppercase tracking-wider">验证链接轮询次数</label>
+                                            <input type="number" v-model.number="config.neuralwatt_mode.verify_max_attempts" class="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-700 font-bold rounded-lg py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-colors shadow-sm text-center">
+                                        </div>
+                                        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-orange-300 transition-colors">
+                                            <label class="block text-[11px] text-slate-500 font-black mb-2 uppercase tracking-wider">测试模型</label>
+                                            <input type="text" v-model="config.neuralwatt_mode.test_model" class="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-700 font-bold rounded-lg py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-colors shadow-sm text-center font-mono text-xs">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mt-5 rounded-2xl border border-orange-100 bg-orange-50/60 px-5 py-4 text-sm text-orange-900 leading-7 font-medium">
+                                    Neuralwatt 模式使用独立邮箱池，与 OpenAI 注册互不影响。注册流程：获取独立邮箱 → 解决 Turnstile → 提交注册 → 邮箱验证链接确认 → 登录获取 API Key (sk-xxx)。API 兼容 OpenAI 格式，base_url 为 <code class="bg-orange-100 px-1.5 py-0.5 rounded text-xs">https://api.neuralwatt.com/v1</code>。
+                                </div>
+                            </div>
                             </div>
                         </div>
                         <div v-show="currentTab === 'notify'" v-if="config" class="space-y-5 md:space-y-8">
