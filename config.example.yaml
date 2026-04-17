@@ -309,6 +309,8 @@ neuralwatt_mode:
   min_accounts_threshold: 20
   # 每次补货数量
   batch_reg_count: 1
+  # 是否使用浏览器扩展古法模式（需配合 reg_mode: extension）
+  use_extension: false
 
 auto_push:
   cpa: false

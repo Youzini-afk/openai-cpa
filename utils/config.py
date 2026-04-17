@@ -202,6 +202,7 @@ NW_THREADS: int = 10
 NW_CHECK_INTERVAL_MINUTES: int = 60
 NW_MIN_ACCOUNTS_THRESHOLD: int = 20
 NW_BATCH_REG_COUNT: int = 1
+NW_USE_EXTENSION: bool = False
 
 LUCKMAIL_PREFERRED_DOMAIN: str = ""
 LUCKMAIL_EMAIL_TYPE: str = ""
@@ -315,7 +316,7 @@ def reload_all_configs():
     global LOCAL_MS_ENABLE_FISSION, LOCAL_MS_MASTER_EMAIL, LOCAL_MS_PASSWORD, LOCAL_MS_CLIENT_ID, LOCAL_MS_REFRESH_TOKEN, LOCAL_MS_POOL_FISSION
     global ENABLE_NEURALWATT_MODE, NW_TURNSTILE_SERVICE, NW_TURNSTILE_API_KEY, NW_AUTO_CREATE_API_KEY
     global NW_TEST_MODEL, NW_VERIFY_MAX_ATTEMPTS, NW_THREADS, NW_CHECK_INTERVAL_MINUTES
-    global NW_MIN_ACCOUNTS_THRESHOLD, NW_BATCH_REG_COUNT
+    global NW_MIN_ACCOUNTS_THRESHOLD, NW_BATCH_REG_COUNT, NW_USE_EXTENSION
 
     def safe_int(value, default, minimum=None):
         try:
@@ -550,6 +551,7 @@ def reload_all_configs():
     NW_CHECK_INTERVAL_MINUTES = safe_int(_nw.get("check_interval_minutes", 60), 60, minimum=1)
     NW_MIN_ACCOUNTS_THRESHOLD = safe_int(_nw.get("min_accounts_threshold", 20), 20, minimum=1)
     NW_BATCH_REG_COUNT = safe_int(_nw.get("batch_reg_count", 1), 1, minimum=1)
+    NW_USE_EXTENSION = safe_bool(_nw.get("use_extension", False), default=False)
 
     _normal          = _c.get("normal_mode", {})
     NORMAL_SLEEP_MIN = _normal.get("sleep_min", 5)

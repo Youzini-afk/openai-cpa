@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "openai-cpa生产调度引擎",
+  "version": "1.2.0",
+  "description": "专为全链路自动化平台打造的调度执行引擎",
+  "permissions": ["tabs", "storage", "scripting", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content/bridge.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://auth0.openai.com/*",
+        "https://auth.openai.com/*",
+        "https://accounts.openai.com/*"
+      ],
+      "js": ["content/utils.js", "content/register.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://portal.neuralwatt.com/auth/*",
+        "https://portal.neuralwatt.com/dashboard/*"
+      ],
+      "js": ["content/utils.js", "content/neuralwatt_register.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

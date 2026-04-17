@@ -96,6 +96,16 @@ class ExtResultReq(BaseModel):
     expected_state: Optional[str] = ""
     error_type: Optional[str] = "failed"
 
+class NwExtResultReq(BaseModel):
+    status: str
+    email: Optional[str] = ""
+    password: Optional[str] = ""
+    api_key: Optional[str] = ""
+    api_base: Optional[str] = ""
+    test_model: Optional[str] = ""
+    error_msg: Optional[str] = ""
+    error_type: Optional[str] = "failed"
+
 class ImportMailboxReq(BaseModel):
     raw_text: str
 
@@ -235,6 +245,7 @@ def ensure_proxy_config_defaults(config_data: dict) -> dict:
     nw_mode.setdefault("check_interval_minutes", 60)
     nw_mode.setdefault("min_accounts_threshold", 20)
     nw_mode.setdefault("batch_reg_count", 1)
+    nw_mode.setdefault("use_extension", False)
 
     if "auto_push" not in config_data or not isinstance(config_data.get("auto_push"), dict):
         config_data["auto_push"] = {}
@@ -1645,6 +1656,107 @@ def ext_stop(token: str = Depends(verify_token)):
     from utils import core_engine
     core_engine.run_stats["ext_is_running"] = False
     return {"status": "success"}
+
+
+@router.get("/api/ext/nw_generate_task")
+def nw_ext_generate_task(token: str = Depends(verify_token)):
+    from utils.neuralwatt.register import _nw_get_email_and_token, _generate_password, _generate_name
+    from utils.email_providers.mail_service import mask_email
+    import utils.config as cfg
+    import time
+    print(f"[{cfg.ts()}] [INFO] [NW古法] 正在生成 Neuralwatt 插件任务...")
+    try:
+        cfg.GLOBAL_STOP = False
+        email = None
+        email_jwt = None
+        for attempt in range(3):
+            print(f"[{cfg.ts()}] [INFO] [NW古法] 正在创建邮箱 (尝试 {attempt + 1}/3)...")
+            email, email_jwt = _nw_get_email_and_token(proxies=None)
+            if email:
+                break
+            time.sleep(1.5)
+        if not email:
+            return {"status": "error", "message": "邮箱获取超时或暂无库存，请稍候"}
+        password = _generate_password()
+        name = _generate_name()
+        name_parts = name.split(" ", 1)
+        first_name = name_parts[0] if len(name_parts) > 0 else "John"
+        last_name = name_parts[1] if len(name_parts) > 1 else "Doe"
+        print(f"[{cfg.ts()}] [INFO] [NW古法] ({mask_email(email)}) 任务下发 (名称: {name})")
+        return {
+            "status": "success",
+            "task_data": {
+                "provider": "neuralwatt",
+                "email": email,
+                "email_jwt": email_jwt or "",
+                "password": password,
+                "firstName": first_name,
+                "lastName": last_name,
+                "name": name,
+                "registerUrl": "https://portal.neuralwatt.com/auth/register",
+                "loginUrl": "https://portal.neuralwatt.com/auth/login?next=/dashboard/keys",
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"NW任务生成失败: {str(e)}"}
+
+
+@router.get("/api/ext/nw_get_verify_link")
+def nw_ext_get_verify_link(email: str, email_jwt: str = "", max_attempts: int = 30, token: str = Depends(verify_token)):
+    from utils.neuralwatt.register import get_verify_link_from_email
+    import utils.config as cfg
+    try:
+        link = get_verify_link_from_email(email, jwt=email_jwt, proxies=None, max_attempts=max_attempts)
+        if link:
+            return {"status": "success", "verify_link": link}
+        return {"status": "pending"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/api/ext/nw_submit_result")
+def nw_ext_submit_result(req: NwExtResultReq, token: str = Depends(verify_token)):
+    from utils import core_engine, db_manager
+    import utils.config as cfg
+    if req.status == "success":
+        api_key = (req.api_key or "").strip()
+        token_data = {
+            "email": req.email or "",
+            "password": req.password or "",
+            "type": "neuralwatt",
+            "api_key": api_key,
+            "api_base": req.api_base or "https://api.neuralwatt.com/v1",
+            "test_model": req.test_model or getattr(cfg, "NW_TEST_MODEL", "meta-llama/Llama-3.3-70B-Instruct"),
+            "login_status": "ok",
+            "key_status": "ok" if api_key else "pending",
+        }
+        token_json = json.dumps(token_data, ensure_ascii=False, separators=(",", ":"))
+        db_manager.save_account_to_db(req.email, req.password, token_json)
+        if api_key:
+            db_manager.save_nw_key(
+                api_key=api_key,
+                email=req.email or "",
+                password=req.password or "",
+                api_base=req.api_base or "https://api.neuralwatt.com/v1",
+                test_model=req.test_model or getattr(cfg, "NW_TEST_MODEL", "meta-llama/Llama-3.3-70B-Instruct"),
+            )
+        core_engine.run_stats['success'] = core_engine.run_stats.get('success', 0) + 1
+        print(f"[{cfg.ts()}] [SUCCESS] [NW古法] ({req.email}) 注册成功，API Key: {api_key[:8] if api_key else '无'}...")
+        return {"status": "success", "message": "Neuralwatt 账号已入库"}
+    else:
+        core_engine.run_stats['failed'] = core_engine.run_stats.get('failed', 0) + 1
+        error_type = req.error_type or "failed"
+        if error_type == "turnstile_blocked":
+            print(f"[{cfg.ts()}] [WARNING] [NW古法] ({req.email}) Turnstile 挑战未通过")
+        elif error_type == "verify_link_timeout":
+            print(f"[{cfg.ts()}] [WARNING] [NW古法] ({req.email}) 验证链接获取超时")
+        elif error_type == "login_failed":
+            print(f"[{cfg.ts()}] [WARNING] [NW古法] ({req.email}) 登录失败")
+        elif error_type == "key_create_failed":
+            print(f"[{cfg.ts()}] [WARNING] [NW古法] ({req.email}) API Key 创建失败")
+        else:
+            print(f"[{cfg.ts()}] [WARNING] [NW古法] ({req.email}) 注册失败: {req.error_msg}")
+        return {"status": "success", "message": "NW异常统计已录入"}
 
 @router.get("/api/mailboxes")
 async def get_mailboxes(page: int = Query(1), page_size: int = Query(50), token: str = Depends(verify_token)):

@@ -3,7 +3,7 @@ const { createApp } = Vue;
 createApp({
     data() {
         return {
-            appVersion: 'v10.1.9',
+            appVersion: 'v10.2.0',
             isLoggedIn: !!localStorage.getItem('auth_token'),
             loginPassword: '',
             currentTab: window.location.hash.replace('#', '') || 'console',
@@ -376,6 +376,14 @@ createApp({
                             console.log("[总控] 同步到全局运行状态，当前节点自动加入生产线...");
                             this.dispatchExtensionTask();
                         }
+                    } else if (this.isRunning && !this._extDispatchTimer && this.isExtConnected) {
+                        const isNwExt = this.config?.neuralwatt_mode?.use_extension === true;
+                        if (isNwExt) {
+                            this._extDispatchTimer = setTimeout(() => {
+                                this._extDispatchTimer = null;
+                                this.dispatchNeuralwattExtensionTask();
+                            }, 4000);
+                        }
                     }
                 this.stats = data;
                 } else {
@@ -522,6 +530,9 @@ createApp({
                 }
                 if (this.config.neuralwatt_mode.batch_reg_count === undefined) {
                     this.config.neuralwatt_mode.batch_reg_count = 1;
+                }
+                if (this.config.neuralwatt_mode.use_extension === undefined) {
+                    this.config.neuralwatt_mode.use_extension = false;
                 }
                 if (this.config.auto_push.cpa === undefined) {
                     this.config.auto_push.cpa = false;
@@ -989,9 +1000,20 @@ createApp({
                         }
                         this.isRunning = true;
                         this.currentTab = 'console';
-                        this.showToast("✅ 节点在线！已启动【浏览器插件托管】模式", "success");
+
+                        const isNwExt = this.config?.neuralwatt_mode?.use_extension === true;
+                        if (isNwExt) {
+                            this.showToast("✅ 节点在线！已启动【Neuralwatt 浏览器插件托管】模式", "success");
+                        } else {
+                            this.showToast("✅ 节点在线！已启动【浏览器插件托管】模式", "success");
+                        }
                         await this.authFetch('/api/ext/reset_stats', { method: 'POST' });
-                        await this.dispatchExtensionTask();
+
+                        if (isNwExt) {
+                            await this.dispatchNeuralwattExtensionTask();
+                        } else {
+                            await this.dispatchExtensionTask();
+                        }
 
                     } else {
                         this.isRunning = true;
@@ -2137,6 +2159,59 @@ createApp({
             }
         },
 
+        async dispatchNeuralwattExtensionTask() {
+            if (!this.isRunning) return;
+
+            try {
+                const res = await this.authFetch('/api/ext/nw_generate_task');
+                const data = await res.json();
+                if (!this.isRunning) {
+                    this.showToast("NW任务已生成，但系统已停止，已丢弃。", "warning");
+                    return;
+                }
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('zh-CN', { hour12: false });
+
+                if (data.status !== 'success') {
+                    this.logs.push({ parsed: true, time: timeStr, level: '总控', text: `NW任务生成失败: ${data.message}`, raw: `[${timeStr}] [总控] NW任务生成失败: ${data.message}` });
+                    return;
+                }
+
+                const task = data.task_data;
+                const taskId = "NW_TASK_" + new Date().getTime();
+
+                this.logs.push({ parsed: true, time: timeStr, level: '总控', text: `📦 [NW] 任务包裹已打包，目标邮箱:${task.email}，正在进行...`, raw: `[${timeStr}] [总控] 📦 [NW] 任务包裹已打包，目标邮箱:${task.email}，正在进行...` });
+
+                this.$nextTick(() => {
+                    const container = document.getElementById('terminal-container');
+                    if (container) container.scrollTop = container.scrollHeight;
+                });
+
+                window.postMessage({
+                    type: "CMD_EXECUTE_TASK",
+                    payload: {
+                        taskId: taskId,
+                        apiUrl: window.location.origin,
+                        token: localStorage.getItem('auth_token'),
+                        provider: 'neuralwatt',
+                        email: task.email,
+                        email_jwt: task.email_jwt || '',
+                        password: task.password,
+                        name: task.name || `${task.firstName || ''} ${task.lastName || ''}`.trim(),
+                        firstName: task.firstName || '',
+                        lastName: task.lastName || '',
+                        registerUrl: task.registerUrl,
+                        loginUrl: task.loginUrl,
+                    }
+                }, "*");
+
+            } catch (error) {
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('zh-CN', { hour12: false });
+                this.logs.push({ parsed: true, time: timeStr, level: '总控', text: `[NW] 下发任务异常: ${error.message}`, raw: `[${timeStr}] [总控] [NW] 下发任务异常: ${error.message}` });
+            }
+        },
+
         syncTokenToExtension() {
             let localWorkerId = localStorage.getItem('local_worker_id');
             if (!localWorkerId) return; // 还没有 ID 则等待 Ready 信号生成
@@ -2214,18 +2289,31 @@ createApp({
                 if (event.data.type === "WORKER_RESULT_REPLY") {
                     const result = event.data.result;
                     try {
-                        await this.authFetch('/api/ext/submit_result', {
-                            method: 'POST',
-                            body: JSON.stringify(result)
-                        });
+                        if (result.provider === 'neuralwatt') {
+                            await this.authFetch('/api/ext/nw_submit_result', {
+                                method: 'POST',
+                                body: JSON.stringify(result)
+                            });
+                        } else {
+                            await this.authFetch('/api/ext/submit_result', {
+                                method: 'POST',
+                                body: JSON.stringify(result)
+                            });
+                        }
                     } catch (e) {
                         console.error("统计上报失败", e);
                     }
 
                     if (result.status === 'success') {
-                        this.showToast(`🎉 收到节点捷报！注册成功！`, "success");
+                        if (result.provider === 'neuralwatt') {
+                            this.showToast(`🎉 [NW] 注册成功！API Key: ${result.api_key ? result.api_key.slice(0, 8) + '...' : '待创建'}`, "success");
+                            this.fetchNwKeys(false);
+                        } else {
+                            this.showToast(`🎉 收到节点捷报！注册成功！`, "success");
+                        }
                     } else {
-                        this.showToast(`❌ 节点汇报失败: ${result.error_msg}`, "error");
+                        const nwPrefix = result.provider === 'neuralwatt' ? '[NW] ' : '';
+                        this.showToast(`❌ ${nwPrefix}节点汇报失败: ${result.error_msg}`, "error");
                     }
 
                     if (this.isRunning) {
@@ -2243,10 +2331,16 @@ createApp({
                             });
                             return;
                         }
-                        this.showToast(`准备下发下一个插件任务...`, "info");
+                        const isNwExt = this.config?.neuralwatt_mode?.use_extension === true;
+                        const nwPrefix = isNwExt ? '[NW] ' : '';
+                        this.showToast(`准备下发下一个${nwPrefix}插件任务...`, "info");
                         this._extDispatchTimer = setTimeout(() => {
                             this._extDispatchTimer = null;
-                            this.dispatchExtensionTask();
+                            if (isNwExt) {
+                                this.dispatchNeuralwattExtensionTask();
+                            } else {
+                                this.dispatchExtensionTask();
+                            }
                         }, 4000);
                     }
                 }

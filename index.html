@@ -2712,11 +2712,19 @@
                                             <label class="block text-[11px] text-slate-500 font-black mb-2 uppercase tracking-wider">测试模型</label>
                                             <input type="text" v-model="config.neuralwatt_mode.test_model" class="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-700 font-bold rounded-lg py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-colors shadow-sm text-center font-mono text-xs">
                                         </div>
+                                        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-orange-300 transition-colors">
+                                            <label class="relative inline-flex items-center cursor-pointer w-full">
+                                                <input type="checkbox" v-model="config.neuralwatt_mode.use_extension" @change="config.neuralwatt_mode.use_extension ? (config.reg_mode = 'extension') : null" class="sr-only peer">
+                                                <div class="relative w-11 h-6 shrink-0 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all after:shadow-sm peer-checked:bg-orange-500 shadow-inner transition-colors duration-300"></div>
+                                                <span class="ml-3 text-sm font-bold text-slate-700">古法模式（浏览器扩展）</span>
+                                            </label>
+                                            <p class="mt-2 text-[10px] text-slate-400 leading-relaxed">开启后将使用真实浏览器注册，自动通过 Turnstile，无需付费验证码服务。需配合安装浏览器插件。</p>
+                                        </div>
                                     </div>
                                 </div>
 
                                 <div class="mt-5 rounded-2xl border border-orange-100 bg-orange-50/60 px-5 py-4 text-sm text-orange-900 leading-7 font-medium">
-                                    Neuralwatt 模式使用独立邮箱池，与 OpenAI 注册互不影响。注册流程：获取独立邮箱 → 解决 Turnstile → 提交注册 → 邮箱验证链接确认 → 登录获取 API Key (sk-xxx)。API 兼容 OpenAI 格式，base_url 为 <code class="bg-orange-100 px-1.5 py-0.5 rounded text-xs">https://api.neuralwatt.com/v1</code>。<strong class="text-orange-700">注意：Turnstile 人机验证必须使用 CapSolver 或 2Captcha，Playwright 无头浏览器无法通过。</strong>
+                                    Neuralwatt 模式使用独立邮箱池，与 OpenAI 注册互不影响。注册流程：获取独立邮箱 → 解决 Turnstile → 提交注册 → 邮箱验证链接确认 → 登录获取 API Key (sk-xxx)。API 兼容 OpenAI 格式，base_url 为 <code class="bg-orange-100 px-1.5 py-0.5 rounded text-xs">https://api.neuralwatt.com/v1</code>。<strong class="text-orange-700">古法模式：开启上方「古法模式」开关后，无需 CapSolver/2Captcha，真实浏览器自动通过 Turnstile。</strong><strong class="text-orange-700">协议模式：Turnstile 人机验证必须使用 CapSolver 或 2Captcha。</strong>
                                 </div>
                             </div>
                         </div>
