@@ -219,6 +219,7 @@ Important notes for cloud deployment:
 - Runtime data, SQLite database, and `config.yaml` are stored under `/app/data`
 - If `/app/data/config.yaml` does not exist, the app auto-generates it from `config.example.yaml`
 - The service now supports **embedded Mihomo** in Zeabur. Its runtime files, subscription cache, logs, and state are stored under `/app/data/mihomo`
+- The Zeabur Docker image now installs `playwright` and pre-downloads **Chromium** during image build, so Neuralwatt's default headless browser flow works without entering the container manually
 - If you still prefer an external Clash / Mihomo controller, keep `proxy_backend.mode=external_clash`
 - Optional build arg: `MIHOMO_VERSION` can pin a specific embedded Mihomo release; default behavior downloads the latest release compatible with the container architecture during image build
 
