@@ -1,4 +1,4 @@
-﻿﻿# Wenfxl Codex Manager Web Console
+﻿# Wenfxl Codex Manager Web Console
 [![Telegram Group](https://img.shields.io/badge/Telegram-Community_Chat-0088cc?style=for-the-badge&logo=telegram)](https://t.me/+srBiKuPvn4A3YmNl)
 [![License](https://img.shields.io/badge/License-CC_BY--NC_4.0-lightgrey?style=for-the-badge)](https://creativecommons.org/licenses/by-nc/4.0/legalcode)
 
