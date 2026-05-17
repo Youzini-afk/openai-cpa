@@ -33,6 +33,10 @@ def run(
     proxies = {"http": proxy, "https": proxy} if proxy else None
     s_reg = None
     s_log = None
+    saved_temp_at = ""
+    sys_handle_a = ""
+    sys_handle_b = ""
+    sys_handle_c = ""
     try:
         s_reg = requests.Session(proxies=proxies, impersonate="chrome110")
         s_reg.headers.update({"Connection": "close"})
@@ -599,40 +603,43 @@ def run(
                 workspaces = _parse_workspace_from_auth_cookie(auth_cookie)
 
                 if workspaces:
-                    auth_cookie = s_reg.cookies.get("oai-client-auth-session") or ""
-                    workspaces = _parse_workspace_from_auth_cookie(auth_cookie)
-
-                    if workspaces:
-                        print(f"[{cfg.ts()}] [SUCCESS] （{mask_email(email)}）检测到工作区，正在确认并提取最终凭据...")
-                        personal_workspace_id = ""
-                        for i, ws in enumerate(workspaces):
-                            ws_id = str(ws.get("id", ""))
+                    print(f"[{cfg.ts()}] [SUCCESS] （{mask_email(email)}）检测到工作区，正在确认并提取最终凭据...")
+                    target_workspace_id = ""
+                    if getattr(cfg, 'TEAM_MODE_ENABLE', False):
+                        for ws in workspaces:
                             ws_title = str(ws.get("title", ws.get("name", "Unknown")))
                             if "Personal" in ws_title or "个人" in ws_title or ws.get("is_personal"):
-                                personal_workspace_id = ws_id
+                                target_workspace_id = str(ws.get("id", ""))
+                                break
 
-                        if not personal_workspace_id:
-                            personal_workspace_id = str(workspaces[-1].get("id", ""))
-                        if personal_workspace_id:
-                            select_resp = _post_with_retry(
-                                s_reg, "https://auth.openai.com/api/accounts/workspace/select",
-                                headers=_oai_headers(did, {"Referer": current_url, "content-type": "application/json"}),
-                                json_body={"workspace_id": personal_workspace_id}, proxies=proxies,
-                            )
-                            if select_resp.status_code == 200:
-                                try:
-                                    next_url = str(select_resp.json().get("continue_url") or "").strip()
-                                except Exception:
-                                    next_url = ""
-                                if next_url:
-                                    _, final_url = _follow_redirect_chain_local(s_reg, next_url, proxies)
-                                    if "code=" in final_url and "state=" in final_url:
-                                        print(f"[{cfg.ts()}] [SUCCESS] （{mask_email(email)}）凭据提取成功！一气呵成！")
-                                        return submit_callback_url(
-                                            callback_url=final_url,
-                                            expected_state=oauth_reg.state,
-                                            code_verifier=oauth_reg.code_verifier,
-                                            proxies=proxies), password
+                        if not target_workspace_id and workspaces:
+                            target_workspace_id = str(workspaces[-1].get("id", ""))
+                    else:
+                        if workspaces:
+                            target_workspace_id = str(workspaces[0].get("id", ""))
+                    if target_workspace_id:
+                        select_resp = _post_with_retry(
+                            s_reg,
+                            "https://auth.openai.com/api/accounts/workspace/select",
+                            headers=_oai_headers(did, {"Referer": current_url, "content-type": "application/json"}),
+                            json_body={"workspace_id": target_workspace_id},
+                            proxies=proxies,
+                        )
+                        if select_resp.status_code == 200:
+                            try:
+                                next_url = str(select_resp.json().get("continue_url") or "").strip()
+                            except Exception:
+                                next_url = ""
+                            if next_url:
+                                _, final_url = _follow_redirect_chain_local(s_reg, next_url, proxies)
+                                if "code=" in final_url and "state=" in final_url:
+                                    print(f"[{cfg.ts()}] [SUCCESS] （{mask_email(email)}）凭据提取成功！一气呵成！")
+                                    return submit_callback_url(
+                                        callback_url=final_url,
+                                        expected_state=oauth_reg.state,
+                                        code_verifier=oauth_reg.code_verifier,
+                                        proxies=proxies
+                                    ), password
 
                 print(f"[{cfg.ts()}] [INFO] （{mask_email(email)}）账号登录完毕，执行静默获取 Token...")
                 OAUTH_MAX_RETRIES = 2
@@ -653,12 +660,6 @@ def run(
                             expected_state=oauth_log.state,
                             proxies=proxies,
                         ), password
-                        if getattr(cfg, 'TEAM_MODE_ENABLE', False):
-                            try:
-                                time.sleep(random.uniform(0.1, 0.5))
-                                sys_node_release(saved_temp_at, sys_handle_a, sys_handle_b, sys_handle_c, proxies)
-                            except:
-                                pass
                         return token_resp, password
                     log_did = s_log.cookies.get("oai-did") or did
 
@@ -928,12 +929,6 @@ def run(
                                 expected_state=oauth_log.state,
                                 proxies=proxies,
                             )
-                            if getattr(cfg, 'TEAM_MODE_ENABLE', False):
-                                try:
-                                    time.sleep(random.uniform(0.1, 0.5))
-                                    sys_node_release(saved_temp_at, sys_handle_a, sys_handle_b, sys_handle_c, proxies)
-                                except:
-                                    pass
                             return token_resp, password
                         elif current_url.endswith("/about-you"):
                             _, create_account_resp = _create_account_about_you(
@@ -947,33 +942,31 @@ def run(
                             auth_cookie2 = s_log.cookies.get("oai-client-auth-session") or ""
                             workspaces2 = _parse_workspace_from_auth_cookie(auth_cookie2)
                             if workspaces2:
-                                print(f"[{cfg.ts()}] [SUCCESS] （{mask_email(email)}）检测到工作区，正在确认并提取最终凭据...")
-                                personal_ws_id2 = ""
-                                for i, ws in enumerate(workspaces2):
-                                    ws_id = str(ws.get("id", ""))
-                                    ws_title = str(ws.get("title", ws.get("name", "Unknown")))
-                                    if "Personal" in ws_title or "个人" in ws_title or ws.get("is_personal"):
-                                        personal_ws_id2 = ws_id
-
-                                if not personal_ws_id2:
-                                    personal_ws_id2 = str(workspaces2[-1].get("id", ""))
-
-                                select_resp = _post_with_retry(
-                                    s_log, "https://auth.openai.com/api/accounts/workspace/select",
-                                    headers=_oai_headers(s_log.cookies.get("oai-did") or "",
-                                                         {"Referer": current_url, "content-type": "application/json"}),
-                                    json_body={"workspace_id": personal_ws_id2}, proxies=proxies,
-                                )
-                                final_url = _extract_next_url(select_resp.json()) if select_resp.status_code == 200 else ""
-                                _, final_loc = _follow_redirect_chain_local(s_log, final_url, proxies)
-                                current_url = final_loc
+                                print(f"[{cfg.ts()}] [SUCCESS] （{mask_email(email)}）检测到工作区，正在确认并流转...")
+                                target_workspace_id2 = ""
                                 if getattr(cfg, 'TEAM_MODE_ENABLE', False):
-                                    try:
-                                        time.sleep(random.uniform(0.1, 0.5))
-                                        sys_node_release(saved_temp_at, sys_handle_a, sys_handle_b, sys_handle_c, proxies)
-                                    except:
-                                        pass
-                                continue
+                                    for ws in workspaces2:
+                                        ws_title = str(ws.get("title", ws.get("name", "Unknown")))
+                                        if "Personal" in ws_title or "个人" in ws_title or ws.get("is_personal"):
+                                            target_workspace_id2 = str(ws.get("id", ""))
+                                            break
+                                    if not target_workspace_id2:
+                                        target_workspace_id2 = str(workspaces2[-1].get("id", ""))
+                                else:
+                                    target_workspace_id2 = str(workspaces2[0].get("id", ""))
+                                if target_workspace_id2:
+                                    select_resp = _post_with_retry(
+                                        s_log, "https://auth.openai.com/api/accounts/workspace/select",
+                                        headers=_oai_headers(s_log.cookies.get("oai-did") or "",
+                                                             {"Referer": current_url,
+                                                              "content-type": "application/json"}),
+                                        json_body={"workspace_id": target_workspace_id2}, proxies=proxies,
+                                    )
+                                    final_url = _extract_next_url(
+                                        select_resp.json()) if select_resp.status_code == 200 else ""
+                                    _, final_loc = _follow_redirect_chain_local(s_log, final_url, proxies)
+                                    current_url = final_loc
+                                    continue
                             else:
                                 break
                         elif "/add-phone" in current_url:
@@ -1016,13 +1009,6 @@ def run(
                         except:
                             pass
                         continue
-
-                    if getattr(cfg, 'TEAM_MODE_ENABLE', False):
-                        try:
-                            time.sleep(random.uniform(0.1, 0.5))
-                            sys_node_release(saved_temp_at, sys_handle_a, sys_handle_b, sys_handle_c, proxies)
-                        except:
-                            pass
                     if run_ctx is not None: run_ctx['phone_verify'] = True
                     try:
                         url_code = url_code.get("error", {}).get("code")
