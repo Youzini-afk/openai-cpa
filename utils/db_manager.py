@@ -236,7 +236,8 @@ def get_accounts_page(page: int = 1, page_size: int = 50, hide_reg: str = "0", s
             params = []
 
             if hide_reg == "1":
-                conditions.append("token_data NOT LIKE '%\"仅注册成功\"%'")
+                conditions.append("token_data NOT LIKE ?")
+                params.append('%"仅注册成功"%')
             if search:
                 conditions.append("(email LIKE ? OR password LIKE ?)")
                 search_term = f"%{search}%"
@@ -306,8 +307,8 @@ def get_image_accounts_page(page: int = 1, page_size: int = 50, search: str = No
     try:
         with get_db_conn() as conn:
             c = get_cursor(conn)
-            conditions = ["token_data LIKE '%\"image2api\"%'", "is_active = 1"]
-            params = []
+            conditions = ["token_data LIKE ?", "is_active = 1"]
+            params = ['%"image2api"%']
 
             if search:
                 conditions.append("(email LIKE ? OR password LIKE ?)")
