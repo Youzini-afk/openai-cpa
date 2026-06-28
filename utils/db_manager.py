@@ -1,150 +1,238 @@
 import sqlite3
+import pymysql
 import json
+import datetime
 import os
-from datetime import datetime
-from typing import Any
+import threading
+from typing import Any, Optional
+from utils.config import DB_TYPE, MYSQL_CFG
+from utils import config as cfg
 
 os.makedirs("data", exist_ok=True)
 DB_PATH = "data/data.db"
+_team_db_lock = threading.Lock()
+_sqlite_write_lock = threading.RLock()
 
-ACCOUNT_PUSH_COLUMNS = {
-    "cpa": "pushed_cpa_at",
-    "sub2api": "pushed_sub2api_at",
-    "codex2api": "pushed_codex2api_at",
-    "neuralwatt": "pushed_neuralwatt_at",
-}
+class get_db_conn:
+    """抹平 SQLite 和 MySQL 连接差异"""
+    def __init__(self, as_dict=False, is_write=False):
+        self.as_dict = as_dict
+        self.is_write = is_write
 
-def ts() -> str:
-    return datetime.now().strftime("%H:%M:%S")
+    def __enter__(self):
+        if DB_TYPE != "mysql" and self.is_write:
+            _sqlite_write_lock.acquire()
+        if DB_TYPE == "mysql":
+            self.conn = pymysql.connect(
+                host=MYSQL_CFG.get('host', '127.0.0.1'),
+                port=MYSQL_CFG.get('port', 3306),
+                user=MYSQL_CFG.get('user', 'root'),
+                password=MYSQL_CFG.get('password', ''),
+                database=MYSQL_CFG.get('db_name', 'wenfxl_manager'),
+                charset='utf8mb4'
+            )
+        else:
+            self.conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level="IMMEDIATE")
+            if self.as_dict:
+                self.conn.row_factory = sqlite3.Row
+        return self.conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            self.conn.commit()
+        else:
+            self.conn.rollback()
+        self.conn.close()
+        if DB_TYPE != "mysql" and self.is_write:
+            _sqlite_write_lock.release()
+
+
+def get_cursor(conn, as_dict=False):
+    """获取适配的游标"""
+    if DB_TYPE == "mysql" and as_dict:
+        return conn.cursor(pymysql.cursors.DictCursor)
+    return conn.cursor()
+
+
+def execute_sql(cursor, sql: str, params=()):
+    if DB_TYPE == "mysql":
+        sql = sql.replace('?', '%s')
+        sql = sql.replace('AUTOINCREMENT', 'AUTO_INCREMENT')
+
+        sql = sql.replace('INSERT OR IGNORE', 'INSERT IGNORE')
+        sql = sql.replace('INSERT OR REPLACE', 'REPLACE')
+
+        sql = sql.replace('TEXT UNIQUE', 'VARCHAR(191) UNIQUE')
+        sql = sql.replace('TEXT PRIMARY KEY', 'VARCHAR(191) PRIMARY KEY')
+
+        if 'PRAGMA' in sql:
+            return None
+
+    return cursor.execute(sql, params)
 
 def init_db():
-    """初始化 SQLite 数据库，创建账号存储表"""
-    with sqlite3.connect(DB_PATH, timeout=10) as conn:
-        c = conn.cursor()
-        c.execute('PRAGMA journal_mode=WAL;')
-        c.execute('PRAGMA synchronous=NORMAL;')
-        c.execute('''
+    """初始化数据库，自动适应双引擎建表"""
+    with get_db_conn(is_write=True) as conn:
+        c = get_cursor(conn)
+        execute_sql(c, 'PRAGMA journal_mode=WAL;')
+        execute_sql(c, 'PRAGMA synchronous=NORMAL;')
+
+        execute_sql(c, '''
             CREATE TABLE IF NOT EXISTS accounts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT UNIQUE,
                 password TEXT,
                 token_data TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                pushed_cpa_at TIMESTAMP,
-                pushed_sub2api_at TIMESTAMP,
-                pushed_codex2api_at TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        c.execute('''
-                    CREATE TABLE IF NOT EXISTS system_kv (
-                        key TEXT PRIMARY KEY, 
-                        value TEXT
-                    )
-                ''')
-        c.execute('''
-                    CREATE TABLE IF NOT EXISTS local_mailboxes (
+        execute_sql(c, '''
+            CREATE TABLE IF NOT EXISTS system_kv (
+                `key` TEXT PRIMARY KEY, 
+                value TEXT
+            )
+        ''')
+        execute_sql(c, '''
+            CREATE TABLE IF NOT EXISTS local_mailboxes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE,
+                password TEXT,
+                client_id TEXT,
+                refresh_token TEXT,
+                status INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        execute_sql(c, '''
+            CREATE TABLE IF NOT EXISTS cluster_sync_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT UNIQUE,
+                node_name TEXT,
+                file_path TEXT,
+                file_size INTEGER DEFAULT 0,
+                total_count INTEGER DEFAULT 0,
+                file_sha256 VARCHAR(255) DEFAULT '',
+                success_count INTEGER DEFAULT 0,
+                fail_count INTEGER DEFAULT 0,
+                status TEXT,
+                error_message TEXT,
+                retry_count INTEGER DEFAULT 0,
+                max_retries INTEGER DEFAULT 3,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                started_at TIMESTAMP DEFAULT NULL,
+                finished_at TIMESTAMP DEFAULT NULL,
+                last_heartbeat TIMESTAMP DEFAULT NULL
+            )
+        ''')
+        execute_sql(c, '''
+                    CREATE TABLE IF NOT EXISTS team_accounts (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         email TEXT UNIQUE,
-                        password TEXT,
-                        client_id TEXT,
-                        refresh_token TEXT,
-                        status INTEGER DEFAULT 0,  -- 0:未用, 1:被占用, 2:已出凭证, 3:死号
+                        access_token TEXT,
+                        cookies TEXT,
+                        status INTEGER DEFAULT 1,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
         try:
-            c.execute('ALTER TABLE local_mailboxes ADD COLUMN fission_count INTEGER DEFAULT 0;')
-            c.execute('ALTER TABLE local_mailboxes ADD COLUMN retry_master INTEGER DEFAULT 0;')
-        except sqlite3.OperationalError:
+            execute_sql(c, 'ALTER TABLE cluster_sync_tasks ADD COLUMN file_sha256 VARCHAR(255) DEFAULT \'\';')
+        except Exception:
             pass
         try:
-            c.execute('ALTER TABLE accounts ADD COLUMN pushed_cpa_at TIMESTAMP;')
-        except sqlite3.OperationalError:
+            execute_sql(c, 'ALTER TABLE team_accounts ADD COLUMN cookies TEXT;')
+        except Exception:
             pass
         try:
-            c.execute('ALTER TABLE accounts ADD COLUMN pushed_sub2api_at TIMESTAMP;')
-        except sqlite3.OperationalError:
+            execute_sql(c, 'ALTER TABLE local_mailboxes ADD COLUMN fission_count INTEGER DEFAULT 0;')
+            execute_sql(c, 'ALTER TABLE local_mailboxes ADD COLUMN retry_master INTEGER DEFAULT 0;')
+        except Exception:
             pass
+
         try:
-            c.execute('ALTER TABLE accounts ADD COLUMN pushed_codex2api_at TIMESTAMP;')
-        except sqlite3.OperationalError:
+            execute_sql(c, 'ALTER TABLE accounts ADD COLUMN is_active INTEGER DEFAULT 1;')
+            execute_sql(c, 'ALTER TABLE accounts ADD COLUMN push_platform VARCHAR(50) DEFAULT NULL;')
+            execute_sql(c, 'ALTER TABLE accounts ADD COLUMN push_time VARCHAR(50) DEFAULT NULL;')
+        except Exception:
             pass
-        try:
-            c.execute('ALTER TABLE accounts ADD COLUMN pushed_neuralwatt_at TIMESTAMP;')
-        except sqlite3.OperationalError:
-            pass
-        c.execute('''
+        for column_name in (
+            'pushed_cpa_at',
+            'pushed_sub2api_at',
+            'pushed_codex2api_at',
+            'pushed_neuralwatt_at',
+        ):
+            try:
+                execute_sql(c, f'ALTER TABLE accounts ADD COLUMN {column_name} TIMESTAMP DEFAULT NULL;')
+            except Exception:
+                pass
+        execute_sql(c, '''
             CREATE TABLE IF NOT EXISTS neuralwatt_keys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 api_key TEXT UNIQUE,
                 email TEXT,
                 password TEXT,
-                api_base TEXT DEFAULT 'https://api.neuralwatt.com/v1',
-                test_model TEXT DEFAULT '',
-                status INTEGER DEFAULT 0,
+                api_base TEXT,
+                test_model TEXT,
+                status TEXT DEFAULT 'active',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_check_at TIMESTAMP
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         try:
-            c.execute('ALTER TABLE neuralwatt_keys ADD COLUMN last_check_at TIMESTAMP;')
-        except sqlite3.OperationalError:
+            execute_sql(c, 'ALTER TABLE team_accounts ADD COLUMN access_token TEXT;')
+        except Exception:
             pass
-        conn.commit()
-    print(f"[{ts()}] [系统] 数据库模块初始化完成")
+    print(f"[{cfg.ts()}] [系统] 数据库模块初始化完成 (引擎: {DB_TYPE.upper()})")
+
 
 def save_account_to_db(email: str, password: str, token_json_str: str) -> bool:
-    """账号、密码和 Token 数据存入数据库"""
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            c = conn.cursor()
-            c.execute('''
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, '''
                 INSERT OR REPLACE INTO accounts (email, password, token_data)
                 VALUES (?, ?, ?)
             ''', (email, password, token_json_str))
-            conn.commit()
             return True
     except Exception as e:
-        print(f"[{ts()}] [ERROR] 数据库保存失败: {e}")
+        print(f"[{cfg.ts()}] [ERROR] 数据库保存失败: {e}")
         return False
 
+
 def get_all_accounts() -> list:
-    """获取所有账号列表，按最新时间倒序"""
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            c = conn.cursor()
-            c.execute("SELECT email, password, created_at FROM accounts ORDER BY id DESC")
+        with get_db_conn() as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "SELECT email, password, created_at FROM accounts ORDER BY id DESC")
             rows = c.fetchall()
             return [{"email": r[0], "password": r[1], "created_at": r[2]} for r in rows]
     except Exception as e:
-        print(f"[{ts()}] [ERROR] 获取账号列表失败: {e}")
+        print(f"[{cfg.ts()}] [ERROR] 获取账号列表失败: {e}")
         return []
 
+
 def get_token_by_email(email: str) -> dict:
-    """根据邮箱提取完整的 Token JSON 数据（用于推送）"""
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            c = conn.cursor()
-            c.execute("SELECT token_data FROM accounts WHERE email = ?", (email,))
+        with get_db_conn() as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "SELECT token_data FROM accounts WHERE email = ?", (email,))
             row = c.fetchone()
             if row and row[0]:
                 return json.loads(row[0])
             return None
     except Exception as e:
-        print(f"[{ts()}] [ERROR] 读取 Token 失败: {e}")
+        print(f"[{cfg.ts()}] [ERROR] 读取 Token 失败: {e}")
         return None
 
+
 def get_tokens_by_emails(emails: list) -> list:
-    """根据前端传入的邮箱列表，提取 Token"""
-    if not emails:
-        return []
+    if not emails: return []
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            c = conn.cursor()
+        with get_db_conn() as conn:
+            c = get_cursor(conn)
             placeholders = ','.join(['?'] * len(emails))
-            c.execute(f"SELECT token_data FROM accounts WHERE email IN ({placeholders})", emails)
+            execute_sql(c, f"SELECT token_data FROM accounts WHERE email IN ({placeholders})", tuple(emails))
             rows = c.fetchall()
-            
+
             export_list = []
             for r in rows:
                 if r[0]:
@@ -155,114 +243,185 @@ def get_tokens_by_emails(emails: list) -> list:
             return export_list
     except Exception as e:
         return []
-        
+
+
 def delete_accounts_by_emails(emails: list) -> bool:
-    """批量从数据库中删除账号"""
-    if not emails:
-        return True
+    if not emails: return True
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            c = conn.cursor()
-            placeholders = ','.join(['?'] * len(emails))
-            c.execute(f"DELETE FROM accounts WHERE email IN ({placeholders})", emails)
-            conn.commit()
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            chunk_size = 900
+            for i in range(0, len(emails), chunk_size):
+                chunk = emails[i:i + chunk_size]
+                placeholders = ','.join(['?'] * len(chunk))
+                execute_sql(c, f"DELETE FROM accounts WHERE email IN ({placeholders})", tuple(chunk))
             return True
     except Exception as e:
-        print(f"[{ts()}] [ERROR] 数据库批量删除账号异常: {e}")
+        print(f"[{cfg.ts()}] [ERROR] 数据库批量删除账号异常: {e}")
         return False
 
-def _build_account_push_filter(push_platform: str = "all", push_state: str = "all") -> tuple[str, list]:
-    platform = str(push_platform or "all").strip().lower()
-    state = str(push_state or "all").strip().lower()
-    if platform not in {"all", "cpa", "sub2api", "codex2api", "neuralwatt"}:
-        platform = "all"
-    if state not in {"all", "pushed", "unpushed"}:
-        state = "all"
 
-    if state == "all":
-        return "", []
-
-    if platform == "all":
-        columns = list(ACCOUNT_PUSH_COLUMNS.values())
-        if state == "pushed":
-            return "(" + " OR ".join(f"{column} IS NOT NULL" for column in columns) + ")", []
-        return "(" + " AND ".join(f"{column} IS NULL" for column in columns) + ")", []
-
-    column = ACCOUNT_PUSH_COLUMNS.get(platform)
-    if not column:
-        return "", []
-    return (f"{column} IS NOT NULL", []) if state == "pushed" else (f"{column} IS NULL", [])
-
-
-def mark_account_pushed(email: str, platform: str) -> bool:
-    column = ACCOUNT_PUSH_COLUMNS.get(str(platform or "").strip().lower())
-    if not column or not email:
-        return False
+def get_accounts_page(
+        page: int = 1,
+        page_size: int = 50,
+        hide_reg: str = "0",
+        search: str = None,
+        status_filter: str = "all",
+        push_platform: str = "all",
+        push_state: str = "all",
+) -> dict:
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.execute(f"UPDATE accounts SET {column} = CURRENT_TIMESTAMP WHERE email = ?", (email,))
-            conn.commit()
-            return True
-    except Exception as e:
-        print(f"[{ts()}] [ERROR] 更新推送标记失败: {e}")
-        return False
+        with get_db_conn() as conn:
+            c = get_cursor(conn)
+            conditions = []
+            params = []
 
+            if hide_reg == "1":
+                conditions.append("token_data NOT LIKE ?")
+                params.append('%"仅注册成功"%')
+            if search:
+                conditions.append("(email LIKE ? OR password LIKE ?)")
+                search_term = f"%{search}%"
+                params.extend([search_term, search_term])
 
-def get_accounts_page(page: int = 1, page_size: int = 50, push_platform: str = "all", push_state: str = "all") -> dict:
-    """带分页的账号拉取功能"""
-    try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            c = conn.cursor()
-            where_sql, params = _build_account_push_filter(push_platform, push_state)
-            count_sql = "SELECT COUNT(1) FROM accounts"
-            if where_sql:
-                count_sql += f" WHERE {where_sql}"
-            c.execute(count_sql, params)
-            total = c.fetchone()[0] or 0
+            if status_filter == "active":
+                conditions.append("is_active = 1 AND push_platform IS NOT NULL AND push_platform != ''")
+            elif status_filter == "disabled":
+                conditions.append("is_active = 0")
+            elif status_filter == "unpushed":
+                conditions.append("(push_platform IS NULL OR push_platform = '') AND is_active = 1")
+            elif status_filter == "pushed":
+                conditions.append("(push_platform IS NOT NULL AND push_platform != '') AND is_active = 1")
+            elif status_filter == "credential":
+                conditions.append("token_data LIKE '%\"access_token\"%' AND token_data NOT LIKE '%\"image2api\"%'")
+            elif status_filter == "image2api":
+                conditions.append("token_data LIKE '%\"image2api\"%'")
+            elif status_filter == "with_token":
+                conditions.append("(token_data LIKE ? AND token_data NOT LIKE ?)")
+                params.extend(['%"refresh_token"%', '%"image2api"%'])
+            elif status_filter == "reg_only":
+                conditions.append("token_data LIKE ?")
+                params.append('%"仅注册成功"%')
+            elif status_filter == "imgsub2api":
+                conditions.append("token_data LIKE ?")
+                params.append('%"image2api"%')
+
+            platform_column_map = {
+                "cpa": "pushed_cpa_at",
+                "sub2api": "pushed_sub2api_at",
+                "codex2api": "pushed_codex2api_at",
+                "neuralwatt": "pushed_neuralwatt_at",
+            }
+            selected_push_platform = str(push_platform or "all").strip().lower()
+            selected_push_state = str(push_state or "all").strip().lower()
+            if selected_push_platform in platform_column_map and selected_push_state in {"pushed", "unpushed"}:
+                push_column = platform_column_map[selected_push_platform]
+                if selected_push_state == "pushed":
+                    conditions.append(f"{push_column} IS NOT NULL")
+                else:
+                    conditions.append(f"{push_column} IS NULL")
+            where_clause = ""
+            if conditions:
+                where_clause = " WHERE " + " AND ".join(conditions)
+
+            count_sql = f"SELECT COUNT(1) FROM accounts{where_clause}"
+            if params:
+                execute_sql(c, count_sql, tuple(params))
+            else:
+                execute_sql(c, count_sql)
+            total = c.fetchone()[0]
 
             offset = (page - 1) * page_size
-            query_sql = """
-                SELECT email, password, created_at, pushed_cpa_at, pushed_sub2api_at, pushed_codex2api_at, pushed_neuralwatt_at
-                FROM accounts
-            """
-            query_params = list(params)
-            if where_sql:
-                query_sql += f" WHERE {where_sql}"
-            query_sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
-            query_params.extend([page_size, offset])
-            c.execute(query_sql, query_params)
+            data_sql = f"SELECT email, password, created_at, token_data, is_active, push_platform, push_time FROM accounts{where_clause} ORDER BY id DESC LIMIT ? OFFSET ?"
+
+            data_params = tuple(params + [page_size, offset])
+            execute_sql(c, data_sql, data_params)
             rows = c.fetchall()
-            
-            data = [{
-                "email": r[0],
-                "password": r[1],
-                "created_at": r[2],
-                "pushed_cpa_at": r[3],
-                "pushed_sub2api_at": r[4],
-                "pushed_codex2api_at": r[5],
-                "pushed_neuralwatt_at": r[6],
-            } for r in rows]
+
+            data = [
+                {
+                    "email": r[0],
+                    "password": r[1],
+                    "created_at": r[2],
+                    "status": "image2api" if '"image2api"' in str(r[3] or "") else (
+                        "有凭证" if '"refresh_token"' in str(r[3] or "") else (
+                            "仅注册成功" if '"仅注册成功"' in str(r[3] or "") else "未知")),
+                    "is_active": r[4] if r[4] is not None else 1,
+                    "push_platform": r[5],
+                    "push_time": r[6]
+                }
+                for r in rows
+            ]
             return {"total": total, "data": data}
+
     except Exception as e:
-        print(f"[{ts()}] [ERROR] 分页获取账号列表失败: {e}")
+        print(f"[{cfg.ts()}] [ERROR] 分页获取账号列表失败: {e}")
         return {"total": 0, "data": []}
 
+
+def get_image_accounts_page(page: int = 1, page_size: int = 50, search: str = None) -> dict:
+    try:
+        with get_db_conn() as conn:
+            c = get_cursor(conn)
+            conditions = ["token_data LIKE ?", "is_active = 1"]
+            params = ['%"image2api"%']
+
+            if search:
+                conditions.append("(email LIKE ? OR password LIKE ?)")
+                search_term = f"%{search}%"
+                params.extend([search_term, search_term])
+
+            where_clause = " WHERE " + " AND ".join(conditions)
+
+            count_sql = f"SELECT COUNT(1) FROM accounts{where_clause}"
+            if params:
+                execute_sql(c, count_sql, tuple(params))
+            else:
+                execute_sql(c, count_sql)
+            total = c.fetchone()[0]
+
+            offset = (page - 1) * page_size
+            data_sql = f"SELECT email, password, created_at, token_data, is_active, push_platform, push_time FROM accounts{where_clause} ORDER BY id DESC LIMIT ? OFFSET ?"
+
+            data_params = tuple(params + [page_size, offset])
+            execute_sql(c, data_sql, data_params)
+            rows = c.fetchall()
+
+            data = [
+                {
+                    "email": r[0],
+                    "password": r[1],
+                    "created_at": r[2],
+                    "token_data": r[3],
+                    "status": "image2api",
+                    "is_active": r[4] if r[4] is not None else 1,
+                    "push_platform": r[5],
+                    "push_time": r[6]
+                } for r in rows
+            ]
+            return {"total": total, "data": data}
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 获取 半成品 账号库失败: {e}")
+        return {"total": 0, "data": []}
+
+
+
 def set_sys_kv(key: str, value: Any):
-    """保存任意数据到系统表"""
     try:
         val_str = json.dumps(value, ensure_ascii=False)
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.execute("INSERT OR REPLACE INTO system_kv (key, value) VALUES (?, ?)", (key, val_str))
-            conn.commit()
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "INSERT OR REPLACE INTO system_kv (`key`, value) VALUES (?, ?)", (key, val_str))
     except Exception as e:
-        print(f"[{ts()}] [ERROR] 系统配置保存失败: {e}")
+        print(f"[{cfg.ts()}] [ERROR] 系统配置保存失败: {e}")
+
 
 def get_sys_kv(key: str, default=None):
-    """从系统表读取数据"""
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            cursor = conn.execute("SELECT value FROM system_kv WHERE key = ?", (key,))
-            row = cursor.fetchone()
+        with get_db_conn() as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "SELECT value FROM system_kv WHERE `key` = ?", (key,))
+            row = c.fetchone()
             if row:
                 return json.loads(row[0])
     except Exception:
@@ -270,42 +429,240 @@ def get_sys_kv(key: str, default=None):
     return default
 
 
-def get_all_accounts_with_token(limit: int = 10000) -> list:
-    """提取包含完整 token_data 的账号列表，专门用于集群导出"""
+def get_all_accounts_with_token(limit: int = 10000, offset: int = 0) -> list:
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            c = conn.cursor()
-            c.execute("SELECT email, password, token_data FROM accounts ORDER BY id DESC LIMIT ?", (limit,))
+        with get_db_conn() as conn:
+            c = get_cursor(conn)
+            if limit and int(limit) > 0:
+                execute_sql(c, "SELECT email, password, token_data FROM accounts ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset))
+            else:
+                execute_sql(c, "SELECT email, password, token_data FROM accounts ORDER BY id DESC")
             rows = c.fetchall()
-
             return [{"email": r[0], "password": r[1], "token_data": r[2]} for r in rows]
     except Exception as e:
-        print(f"[{ts()}] [ERROR] 提取完整账号数据失败: {e}")
+        print(f"[{cfg.ts()}] [ERROR] 提取完整账号数据失败: {e}")
         return []
 
-def save_account_to_db(email: str, password: str, token_json_str: str) -> bool:
-    """账号、密码和 Token 数据存入数据库"""
+
+def create_cluster_sync_task(task_id: str, node_name: str, file_path: str, file_size: int, total_count: int, max_retries: int, file_sha256: str = "") -> bool:
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            c = conn.cursor()
-            c.execute('''
-                INSERT OR IGNORE INTO accounts (email, password, token_data)
-                VALUES (?, ?, ?)
-            ''', (email, password, token_json_str))
-            conn.commit()
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "SELECT 1 FROM cluster_sync_tasks WHERE task_id = ?", (task_id,))
+            if c.fetchone():
+                return False
+            execute_sql(c, '''
+                INSERT INTO cluster_sync_tasks (
+                    task_id, node_name, file_path, file_size, total_count, file_sha256,
+                    success_count, fail_count, status, error_message,
+                    retry_count, max_retries, created_at, started_at,
+                    finished_at, last_heartbeat
+                ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 'pending', '', 0, ?, CURRENT_TIMESTAMP, NULL, NULL, NULL)
+            ''', (task_id, node_name, file_path, file_size, total_count, str(file_sha256 or '').strip(), max_retries))
             return True
     except Exception as e:
-        print(f"[{ts()}] [ERROR] 数据库保存失败: {e}")
+        print(f"[{cfg.ts()}] [ERROR] 创建同步任务失败: {e}")
         return False
+
+
+def get_cluster_sync_task(task_id: str) -> Optional[dict]:
+    try:
+        with get_db_conn(as_dict=True) as conn:
+            c = get_cursor(conn, as_dict=True)
+            execute_sql(c, "SELECT * FROM cluster_sync_tasks WHERE task_id = ?", (task_id,))
+            row = c.fetchone()
+            return dict(row) if row else None
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 获取同步任务失败: {e}")
+        return None
+
+
+def list_cluster_sync_tasks(limit: int = 20, node_name: str = "", status: str = "") -> list:
+    try:
+        with get_db_conn(as_dict=True) as conn:
+            c = get_cursor(conn, as_dict=True)
+            conditions = []
+            params = []
+            if node_name:
+                conditions.append("node_name = ?")
+                params.append(node_name)
+            if status:
+                conditions.append("status = ?")
+                params.append(status)
+            where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+            execute_sql(c, f"SELECT * FROM cluster_sync_tasks{where_clause} ORDER BY id DESC LIMIT ?", tuple(params + [limit]))
+            rows = c.fetchall()
+            return [dict(row) for row in rows]
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 获取同步任务列表失败: {e}")
+        return []
+
+
+def claim_next_cluster_sync_task() -> Optional[dict]:
+    try:
+        with get_db_conn(is_write=True, as_dict=True) as conn:
+            c = get_cursor(conn, as_dict=True)
+            execute_sql(c, "SELECT task_id FROM cluster_sync_tasks WHERE status IN ('pending', 'retry_wait') ORDER BY id ASC LIMIT 1")
+            row = c.fetchone()
+            if not row:
+                return None
+            task_id = row['task_id'] if DB_TYPE == 'mysql' else row[0]
+            execute_sql(c, '''
+                UPDATE cluster_sync_tasks
+                SET status = 'running', started_at = CURRENT_TIMESTAMP, finished_at = NULL,
+                    error_message = '', success_count = 0, fail_count = 0,
+                    last_heartbeat = CURRENT_TIMESTAMP
+                WHERE task_id = ?
+            ''', (task_id,))
+        return get_cluster_sync_task(task_id)
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 抢占同步任务失败: {e}")
+        return None
+
+
+def update_cluster_sync_task_progress(task_id: str, success_count: int, fail_count: int) -> bool:
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, '''
+                UPDATE cluster_sync_tasks
+                SET success_count = ?, fail_count = ?, last_heartbeat = CURRENT_TIMESTAMP
+                WHERE task_id = ?
+            ''', (success_count, fail_count, task_id))
+            return True
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 更新同步任务进度失败: {e}")
+        return False
+
+
+def finalize_cluster_sync_task(task_id: str, status: str, success_count: int, fail_count: int, error_message: str = "") -> bool:
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, '''
+                UPDATE cluster_sync_tasks
+                SET status = ?, success_count = ?, fail_count = ?, error_message = ?,
+                    finished_at = CURRENT_TIMESTAMP, last_heartbeat = CURRENT_TIMESTAMP
+                WHERE task_id = ?
+            ''', (status, success_count, fail_count, error_message, task_id))
+            return True
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 完成同步任务失败: {e}")
+        return False
+
+
+def mark_cluster_sync_task_for_retry(task_id: str, error_message: str = "") -> bool:
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, '''
+                UPDATE cluster_sync_tasks
+                SET status = 'retry_wait', retry_count = retry_count + 1,
+                    error_message = ?, finished_at = NULL, last_heartbeat = CURRENT_TIMESTAMP
+                WHERE task_id = ?
+            ''', (error_message, task_id))
+            return True
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 标记同步任务重试失败: {e}")
+        return False
+
+
+def retry_cluster_sync_task(task_id: str) -> bool:
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, '''
+                UPDATE cluster_sync_tasks
+                SET status = 'pending', success_count = 0, fail_count = 0,
+                    error_message = '', started_at = NULL, finished_at = NULL,
+                    last_heartbeat = NULL
+                WHERE task_id = ? AND status IN ('failed', 'partial_success')
+            ''', (task_id,))
+            return c.rowcount > 0
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 重试同步任务失败: {e}")
+        return False
+
+
+def get_cluster_sync_task_status(task_id: str) -> Optional[str]:
+    try:
+        with get_db_conn() as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "SELECT status FROM cluster_sync_tasks WHERE task_id = ?", (task_id,))
+            row = c.fetchone()
+            if row:
+                return row[0]
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 获取同步任务状态失败: {e}")
+    return None
+
+
+def cancel_cluster_sync_task(task_id: str) -> bool:
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "SELECT status FROM cluster_sync_tasks WHERE task_id = ?", (task_id,))
+            row = c.fetchone()
+            if not row:
+                return False
+            status = row[0]
+            if status == 'pending':
+                execute_sql(c, '''
+                    UPDATE cluster_sync_tasks
+                    SET status = 'cancelled', finished_at = CURRENT_TIMESTAMP, last_heartbeat = CURRENT_TIMESTAMP,
+                        error_message = '用户取消任务'
+                    WHERE task_id = ?
+                ''', (task_id,))
+                return c.rowcount > 0
+            if status == 'running':
+                execute_sql(c, '''
+                    UPDATE cluster_sync_tasks
+                    SET status = 'cancel_requested', last_heartbeat = CURRENT_TIMESTAMP,
+                        error_message = '用户请求取消'
+                    WHERE task_id = ?
+                ''', (task_id,))
+                return c.rowcount > 0
+            return False
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 取消同步任务失败: {e}")
+        return False
+
+
+def clear_cluster_sync_terminal_tasks() -> int:
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, '''
+                DELETE FROM cluster_sync_tasks
+                WHERE status IN ('success', 'partial_success', 'failed', 'cancelled')
+            ''')
+            return max(0, int(c.rowcount or 0))
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 清理终态同步任务失败: {e}")
+        return 0
+
+
+def get_cluster_sync_retry_state(task_id: str) -> tuple[int, int]:
+    try:
+        with get_db_conn() as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "SELECT retry_count, max_retries FROM cluster_sync_tasks WHERE task_id = ?", (task_id,))
+            row = c.fetchone()
+            if row:
+                return int(row[0] or 0), int(row[1] or 0)
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 获取同步任务重试状态失败: {e}")
+    return 0, 0
+
 
 def import_local_mailboxes(mailboxes_data: list) -> int:
     count = 0
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            c = conn.cursor()
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
             for mb in mailboxes_data:
                 try:
-                    c.execute('''
+                    execute_sql(c, '''
                         INSERT OR IGNORE INTO local_mailboxes (email, password, client_id, refresh_token, status)
                         VALUES (?, ?, ?, ?, 0)
                     ''', (mb['email'], mb['password'], mb.get('client_id', ''), mb.get('refresh_token', '')))
@@ -313,231 +670,616 @@ def import_local_mailboxes(mailboxes_data: list) -> int:
                         count += 1
                 except:
                     pass
-            conn.commit()
     except Exception as e:
-        print(f"[{ts()}] [ERROR] 导入邮箱库失败: {e}")
+        print(f"[{cfg.ts()}] [ERROR] 导入邮箱库失败: {e}")
     return count
 
-def get_local_mailboxes_page(page: int = 1, page_size: int = 50) -> dict:
-    try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute("SELECT COUNT(1) FROM local_mailboxes")
-            total = c.fetchone()[0]
 
+def get_local_mailboxes_page(page: int = 1, page_size: int = 50, search: str = None) -> dict:
+    try:
+        with get_db_conn(as_dict=True) as conn:
+            c = get_cursor(conn, as_dict=True)
+            conditions = []
+            params = []
+
+            if search:
+                conditions.append("(email LIKE ?)")
+                search_term = f"%{search}%"
+                params.extend([search_term])
+
+            where_clause = ""
+            if conditions:
+                where_clause = " WHERE " + " AND ".join(conditions)
+            count_sql = f"SELECT COUNT(1) AS cnt FROM local_mailboxes{where_clause}"
+            if params:
+                execute_sql(c, count_sql, tuple(params))
+            else:
+                execute_sql(c, count_sql)
+
+            total_row = c.fetchone()
+            total = total_row['cnt'] if DB_TYPE == "mysql" else total_row[0]
             offset = (page - 1) * page_size
-            c.execute("SELECT * FROM local_mailboxes ORDER BY id DESC LIMIT ? OFFSET ?", (page_size, offset))
+            data_sql = f"SELECT * FROM local_mailboxes{where_clause} ORDER BY id DESC LIMIT ? OFFSET ?"
+            data_params = tuple(params + [page_size, offset])
+            execute_sql(c, data_sql, data_params)
             rows = c.fetchall()
+
             return {"total": total, "data": [dict(r) for r in rows]}
     except Exception as e:
+        print(f"[ERROR] 分页获取邮箱库列表失败: {e}")
         return {"total": 0, "data": []}
+
 
 def delete_local_mailboxes(ids: list) -> bool:
     if not ids: return True
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            c = conn.cursor()
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
             placeholders = ','.join(['?'] * len(ids))
-            c.execute(f"DELETE FROM local_mailboxes WHERE id IN ({placeholders})", ids)
-            conn.commit()
+            execute_sql(c, f"DELETE FROM local_mailboxes WHERE id IN ({placeholders})", tuple(ids))
             return True
     except Exception as e:
         return False
 
+
 def get_and_lock_unused_local_mailbox() -> dict:
-    """提取一个未使用的账号，并状态锁定为 1 (占用中)，防止并发撞车"""
+    """提取一个未使用的账号，并状态锁定为占用中"""
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute("BEGIN EXCLUSIVE")
-            c.execute("SELECT * FROM local_mailboxes WHERE status = 0 ORDER BY id ASC LIMIT 1")
+        with get_db_conn(as_dict=True, is_write=True) as conn:
+            c = get_cursor(conn, as_dict=True)
+
+            filter_sql = """
+                            SELECT * FROM local_mailboxes m
+                            WHERE status = 0 
+                            AND NOT EXISTS (
+                                SELECT 1 FROM accounts a WHERE TRIM(LOWER(a.email)) = TRIM(LOWER(m.email))
+                            )
+                            ORDER BY id ASC LIMIT 1
+                        """
+
+            if DB_TYPE == "mysql":
+                execute_sql(c, "START TRANSACTION")
+                execute_sql(c, filter_sql + " FOR UPDATE")
+            else:
+                execute_sql(c, filter_sql)
+
             row = c.fetchone()
             if row:
-                c.execute("UPDATE local_mailboxes SET status = 1 WHERE id = ?", (row['id'],))
-                conn.commit()
+                execute_sql(c, "UPDATE local_mailboxes SET status = 1 WHERE id = ?", (row['id'],))
                 return dict(row)
-            conn.commit()
             return None
     except Exception as e:
-        print(f"[{ts()}] [ERROR] 提取本地邮箱失败: {e}")
+        print(f"[{cfg.ts()}] [ERROR] 提取本地邮箱失败: {e}")
         return None
-
-def update_local_mailbox_status(email: str, status: int):
-    """更新邮箱状态：1=占用 2=出凭证 3=死号"""
-    try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.execute("UPDATE local_mailboxes SET status = ? WHERE email = ?", (status, email))
-            conn.commit()
-    except Exception: pass
-
-def update_local_mailbox_refresh_token(email: str, new_rt: str):
-    """刷新了 Token 后更新数据库"""
-    try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.execute("UPDATE local_mailboxes SET refresh_token = ? WHERE email = ?", (new_rt, email))
-            conn.commit()
-    except Exception: pass
-
-def get_and_lock_unused_local_mailbox() -> dict:
-    """不分裂"""
-    try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute("BEGIN EXCLUSIVE")
-            c.execute("SELECT * FROM local_mailboxes WHERE status = 0 ORDER BY id ASC LIMIT 1")
-            row = c.fetchone()
-            if row:
-                c.execute("UPDATE local_mailboxes SET status = 1 WHERE id = ?", (row['id'],))
-                conn.commit()
-                return dict(row)
-            conn.commit()
-    except Exception as e: print(f"[{ts()}] [ERROR] {e}")
-    return None
 
 
 def get_mailbox_for_pool_fission() -> dict:
-    """
-    提取的同时立刻增加计数，防止多线程撞车
-    """
+    """带重试优先级的并发取号"""
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            c.execute("BEGIN EXCLUSIVE")
-            c.execute("SELECT * FROM local_mailboxes WHERE status = 0 AND retry_master = 1 LIMIT 1")
+        with get_db_conn(as_dict=True, is_write=True) as conn:
+            c = get_cursor(conn, as_dict=True)
+            if DB_TYPE == "mysql":
+                execute_sql(c, "START TRANSACTION")
+                execute_sql(c, "SELECT * FROM local_mailboxes WHERE status = 0 AND retry_master = 1 AND email NOT IN (SELECT email FROM accounts) LIMIT 1 FOR UPDATE")
+            else:
+                execute_sql(c, "SELECT * FROM local_mailboxes WHERE status = 0 AND retry_master = 1 AND email NOT IN (SELECT email FROM accounts) LIMIT 1")
+
             row = c.fetchone()
 
             if not row:
-                c.execute("SELECT * FROM local_mailboxes WHERE status = 0 ORDER BY fission_count ASC LIMIT 1")
+                if DB_TYPE == "mysql":
+                    execute_sql(c, "SELECT * FROM local_mailboxes WHERE status = 0 ORDER BY fission_count ASC LIMIT 1 FOR UPDATE")
+                else:
+                    execute_sql(c, "SELECT * FROM local_mailboxes WHERE status = 0 ORDER BY fission_count ASC LIMIT 1")
                 row = c.fetchone()
 
             if row:
-                c.execute("UPDATE local_mailboxes SET fission_count = fission_count + 1 WHERE id = ?", (row['id'],))
-                conn.commit()
+                execute_sql(c, "UPDATE local_mailboxes SET fission_count = fission_count + 1 WHERE id = ?",
+                            (row['id'],))
                 return dict(row)
-
-            conn.commit()
             return None
     except Exception as e:
-        print(f"[{ts()}] [DB_ERROR] 提取失败: {e}")
+        print(f"[{cfg.ts()}] [DB_ERROR] 提取失败: {e}")
         return None
 
-def update_pool_fission_result(email: str, is_blocked: bool, is_raw: bool):
-    """
-    处理库分裂结果：
-    """
+
+def update_local_mailbox_status(email: str, status: int):
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "UPDATE local_mailboxes SET status = ? WHERE email = ?", (status, email))
+    except Exception:
+        pass
+
+
+def update_local_mailbox_refresh_token(email: str, new_rt: str):
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "UPDATE local_mailboxes SET refresh_token = ? WHERE email = ?", (new_rt, email))
+    except Exception:
+        pass
+
+
+def update_pool_fission_result(email: str, is_blocked: bool, is_raw: bool):
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
             if not is_blocked:
-                conn.execute("UPDATE local_mailboxes SET retry_master = 0 WHERE email = ?", (email,))
+                execute_sql(c, "UPDATE local_mailboxes SET retry_master = 0 WHERE email = ?", (email,))
             else:
                 if not is_raw:
-                    conn.execute("UPDATE local_mailboxes SET retry_master = 1 WHERE email = ?", (email,))
+                    execute_sql(c, "UPDATE local_mailboxes SET retry_master = 1 WHERE email = ?", (email,))
                 else:
-                    conn.execute("UPDATE local_mailboxes SET status = 3, retry_master = 0 WHERE email = ?", (email,))
-            conn.commit()
+                    execute_sql(c, "UPDATE local_mailboxes SET status = 3, retry_master = 0 WHERE email = ?", (email,))
     except Exception as e:
-        print(f"[{ts()}] [DB_ERROR] 结果更新失败: {e}")
+        print(f"[{cfg.ts()}] [DB_ERROR] 结果更新失败: {e}")
+
 
 def clear_retry_master_status(email: str):
-    """
-    清除邮箱的母号重试标记，防止多线程并发时重复取号
-    """
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.execute("UPDATE local_mailboxes SET retry_master = 0 WHERE email = ?", (email,))
-            conn.commit()
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "UPDATE local_mailboxes SET retry_master = 0 WHERE email = ?", (email,))
     except Exception as e:
-        print(f"[{ts()}] [DB_ERROR] 清除 {email} 的 retry_master 状态失败: {e}")
+        print(f"[{cfg.ts()}] [DB_ERROR] 清除 {email} 的 retry_master 状态失败: {e}")
 
 
-def save_nw_key(api_key: str, email: str = "", password: str = "", api_base: str = "https://api.neuralwatt.com/v1", test_model: str = "") -> bool:
+def get_all_accounts_raw() -> list:
+    """获取账号库所有原始数据"""
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.execute(
-                "INSERT OR IGNORE INTO neuralwatt_keys (api_key, email, password, api_base, test_model) VALUES (?, ?, ?, ?, ?)",
-                (api_key, email, password, api_base, test_model),
-            )
-            conn.commit()
+        with get_db_conn() as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "SELECT email, password, token_data FROM accounts ORDER BY id DESC")
+            rows = c.fetchall()
+            return [{"email": r[0], "password": r[1], "token_data": json.loads(r[2]) if r[2] else {}} for r in rows]
+    except: return []
+
+
+def check_account_exists(email: str) -> bool:
+    """检查指定邮箱是否已经在本地账号库中"""
+    if not email: return False
+    try:
+        with get_db_conn() as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "SELECT 1 FROM accounts WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))", (email,))
+            return c.fetchone() is not None
+    except Exception as e:
+        print(f"[{cfg.ts()}] [DB_ERROR] 查重失败: {e}")
+        return False
+
+
+def clear_all_accounts() -> bool:
+    """一键清空账号库"""
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "DELETE FROM accounts")
             return True
+    except: return False
+
+
+def get_all_mailboxes_raw() -> list:
+    """获取邮箱库所有原始数据"""
+    try:
+        with get_db_conn(as_dict=True) as conn:
+            c = get_cursor(conn, as_dict=True)
+            execute_sql(c, "SELECT * FROM local_mailboxes ORDER BY id DESC")
+            return [dict(r) for r in c.fetchall()]
+    except: return []
+
+
+def clear_all_mailboxes() -> bool:
+    """一键清空邮箱库"""
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "DELETE FROM local_mailboxes")
+            return True
+    except: return False
+
+
+def update_account_status(emails: list, is_active: int):
+    if not emails: return
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            placeholders = ','.join(['?'] * len(emails))
+            execute_sql(c, f"UPDATE accounts SET is_active = ? WHERE email IN ({placeholders})", tuple([is_active] + emails))
     except Exception as e:
-        print(f"[{ts()}] [DB_ERROR] Neuralwatt key 保存失败: {e}")
+        print(f"[{cfg.ts()}] [ERROR] 更新活跃状态失败: {e}")
+
+
+def update_account_push_info(emails: list, platform: str, mode: str = "overwrite"):
+    if not emails: return
+    try:
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        target_platform = platform.strip().upper()
+        target_prefixes = tuple(str(e).strip().lower() for e in emails if str(e).strip())
+        if not target_prefixes:
+            return
+
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "SELECT email, push_platform FROM accounts")
+            all_local_accounts = c.fetchall()
+
+            update_params = []
+
+            for row in all_local_accounts:
+                db_email = row[0]
+                if not db_email:
+                    continue
+
+                if db_email.strip().lower().startswith(target_prefixes):
+                    current_raw = row[1] if row[1] else ""
+
+                    if mode == "sync":
+                        if current_raw:
+                            parts = [p.strip().upper() for p in current_raw.split(',') if p.strip()]
+                            p_set = set(parts)
+                            p_set.add(target_platform)
+                            new_val = ",".join(sorted(list(p_set)))
+                        else:
+                            new_val = target_platform
+                    else:
+                        new_val = target_platform
+                    update_params.append((new_val, now_str, db_email))
+
+            if update_params:
+                base_sql = """
+                    UPDATE accounts 
+                    SET push_platform = ?, push_time = COALESCE(push_time, ?) 
+                    WHERE email = ?
+                """
+                if DB_TYPE == "mysql":
+                    base_sql = base_sql.replace('?', '%s')
+                c.executemany(base_sql, update_params)
+
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 更新推送状态失败: {e}")
+
+
+def mark_account_pushed(email: str, platform: str) -> bool:
+    clean_email = str(email or "").strip()
+    if not clean_email:
+        return False
+    platform_key = str(platform or "").strip().lower()
+    column_map = {
+        "cpa": "pushed_cpa_at",
+        "sub2api": "pushed_sub2api_at",
+        "codex2api": "pushed_codex2api_at",
+        "neuralwatt": "pushed_neuralwatt_at",
+    }
+    push_column = column_map.get(platform_key)
+    if not push_column:
+        return False
+    try:
+        update_account_push_info([clean_email], platform_key.upper(), mode="sync")
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, f"UPDATE accounts SET {push_column} = CURRENT_TIMESTAMP WHERE email = ?", (clean_email,))
+        return True
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 标记账号推送状态失败: {e}")
+        return False
+
+
+def save_nw_key(api_key: str, email: str = "", password: str = "", api_base: str = "", test_model: str = "", status: str = "active") -> bool:
+    clean_key = str(api_key or "").strip()
+    if not clean_key:
+        return False
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, '''
+                INSERT OR REPLACE INTO neuralwatt_keys (api_key, email, password, api_base, test_model, status, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (
+                clean_key,
+                str(email or "").strip(),
+                str(password or ""),
+                str(api_base or "https://api.neuralwatt.com/v1").strip(),
+                str(test_model or getattr(cfg, "NW_TEST_MODEL", "meta-llama/Llama-3.3-70B-Instruct")).strip(),
+                str(status or "active").strip() or "active",
+            ))
+        return True
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 保存 Neuralwatt Key 失败: {e}")
         return False
 
 
 def get_nw_keys_page(page: int = 1, page_size: int = 50, status: str = "all") -> dict:
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            c = conn.cursor()
-            where = ""
-            params: list = []
-            if status == "active":
-                where = "WHERE status = 0"
-            elif status == "dead":
-                where = "WHERE status = 2"
-            c.execute(f"SELECT COUNT(*) FROM neuralwatt_keys {where}")
-            total = c.fetchone()[0]
+        with get_db_conn(as_dict=True) as conn:
+            c = get_cursor(conn, as_dict=True)
+            conditions = []
+            params = []
+            status_value = str(status or "all").strip().lower()
+            if status_value and status_value != "all":
+                conditions.append("status = ?")
+                params.append(status_value)
+            where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+            execute_sql(c, f"SELECT COUNT(1) FROM neuralwatt_keys{where_clause}", tuple(params))
+            total_row = c.fetchone()
+            total = total_row[0] if total_row is not None and not isinstance(total_row, dict) else (total_row.get("COUNT(1)", 0) if total_row else 0)
             offset = (page - 1) * page_size
-            c.execute(
-                f"SELECT id, api_key, email, password, api_base, test_model, status, created_at, last_check_at FROM neuralwatt_keys {where} ORDER BY id DESC LIMIT ? OFFSET ?",
-                (*params, page_size, offset),
-            )
+            execute_sql(c, f"SELECT * FROM neuralwatt_keys{where_clause} ORDER BY id DESC LIMIT ? OFFSET ?", tuple(params + [page_size, offset]))
             rows = c.fetchall()
-            data = [
-                {
-                    "id": r[0],
-                    "api_key": r[1],
-                    "email": r[2] or "",
-                    "password": r[3] or "",
-                    "api_base": r[4] or "",
-                    "test_model": r[5] or "",
-                    "status": r[6],
-                    "created_at": r[7],
-                    "last_check_at": r[8],
-                }
-                for r in rows
-            ]
-            return {"total": total, "data": data}
+            return {"total": total, "data": [dict(row) for row in rows]}
     except Exception as e:
-        print(f"[{ts()}] [DB_ERROR] Neuralwatt key 查询失败: {e}")
+        print(f"[{cfg.ts()}] [ERROR] 获取 Neuralwatt Key 列表失败: {e}")
         return {"total": 0, "data": []}
 
 
 def delete_nw_key(key_id: int) -> bool:
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.execute("DELETE FROM neuralwatt_keys WHERE id = ?", (key_id,))
-            conn.commit()
-            return True
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "DELETE FROM neuralwatt_keys WHERE id = ?", (key_id,))
+            return c.rowcount > 0
     except Exception as e:
-        print(f"[{ts()}] [DB_ERROR] Neuralwatt key 删除失败: {e}")
+        print(f"[{cfg.ts()}] [ERROR] 删除 Neuralwatt Key 失败: {e}")
         return False
 
 
-def update_nw_key_status(api_key: str, status: int) -> bool:
+def get_inventory_stats() -> dict:
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            conn.execute("UPDATE neuralwatt_keys SET status = ? WHERE api_key = ?", (status, api_key))
-            conn.commit()
-            return True
+        with get_db_conn() as conn:
+            c = get_cursor(conn)
+            sql = """
+                            SELECT 
+                                COUNT(1) as total,
+                                SUM(CASE WHEN (push_platform IS NOT NULL AND push_platform != '') AND is_active = 1 THEN 1 ELSE 0 END) as active_count,
+                                SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) as disabled_count,
+                                SUM(CASE WHEN (push_platform IS NULL OR push_platform = '') AND is_active = 1 THEN 1 ELSE 0 END) as unpushed_count,
+                                SUM(CASE WHEN (push_platform IS NOT NULL AND push_platform != '') AND is_active = 1 THEN 1 ELSE 0 END) as pushed_count,
+                                SUM(CASE WHEN push_platform LIKE ? THEN 1 ELSE 0 END) as cpa_total,
+                                SUM(CASE WHEN push_platform LIKE ? AND is_active = 1 THEN 1 ELSE 0 END) as cpa_active,
+                                SUM(CASE WHEN push_platform LIKE ? AND is_active = 0 THEN 1 ELSE 0 END) as cpa_disabled,
+                                SUM(CASE WHEN push_platform LIKE ? THEN 1 ELSE 0 END) as sub_total,
+                                SUM(CASE WHEN push_platform LIKE ? AND is_active = 1 THEN 1 ELSE 0 END) as sub_active,
+                                SUM(CASE WHEN push_platform LIKE ? AND is_active = 0 THEN 1 ELSE 0 END) as sub_disabled,
+                                SUM(CASE WHEN (push_platform IS NOT NULL AND push_platform != '') THEN 1 ELSE 0 END) as cloud_total,
+
+                                SUM(CASE WHEN token_data LIKE ? AND token_data NOT LIKE ? THEN 1 ELSE 0 END) as with_token_count,
+                                SUM(CASE WHEN token_data LIKE ? AND token_data NOT LIKE ? THEN 1 ELSE 0 END) as credential_count,
+                                SUM(CASE WHEN token_data LIKE ? THEN 1 ELSE 0 END) as reg_only_count,
+                                SUM(CASE WHEN token_data LIKE ? THEN 1 ELSE 0 END) as imgsub2api_count,
+                                SUM(CASE WHEN token_data LIKE ? THEN 1 ELSE 0 END) as image2api_count
+                            FROM accounts
+                        """
+            params = (
+                '%CPA%', '%CPA%', '%CPA%',
+                '%SUB2API%', '%SUB2API%', '%SUB2API%',
+                '%"refresh_token"%', '%"image2api"%',
+                '%"access_token"%', '%"image2api"%',
+                '%"仅注册成功"%',
+                '%"image2api"%',
+                '%"image2api"%'
+            )
+
+            execute_sql(c, sql, params)
+            row = c.fetchone()
+            r = [x or 0 for x in row] if row else [0] * 17
+
+            return {
+                "local": {
+                    "total": r[0],
+                    "active": r[1],
+                    "disabled": r[2],
+                    "unpushed": r[3],
+                    "pushed": r[4],
+                    "with_token": r[12],
+                    "credential": r[13],
+                    "reg_only": r[14],
+                    "imgsub2api": r[15],
+                    "image2api": r[16]
+                },
+                "cloud": {
+                    "total": r[11],
+                    "enabled": r[1],
+                    "cpa": r[5],
+                    "cpa_active": r[6],
+                    "cpa_disabled": r[7],
+                    "sub2api": r[8],
+                    "sub2api_active": r[9],
+                    "sub2api_disabled": r[10]
+                }
+            }
     except Exception as e:
-        print(f"[{ts()}] [DB_ERROR] Neuralwatt key 状态更新失败: {e}")
-        return False
+        print(f"[{cfg.ts()}] [ERROR] 获取统计数据失败: {e}")
+        return {
+            "local": {"total": 0, "active": 0, "disabled": 0, "unpushed": 0, "pushed": 0, "with_token": 0, "credential": 0, "reg_only": 0,
+                      "imgsub2api": 0, "image2api": 0},
+            "cloud": {"total": 0, "enabled": 0, "cpa": 0, "cpa_active": 0, "cpa_disabled": 0, "sub2api": 0,
+                      "sub2api_active": 0, "sub2api_disabled": 0}
+        }
 
 
-def count_nw_keys(status: str = "all") -> int:
+def update_account_status_by_truncated_name(truncated_name: str, is_active: int):
+    if not truncated_name or truncated_name == "unknown": return
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
-            c = conn.cursor()
-            if status == "active":
-                c.execute("SELECT COUNT(*) FROM neuralwatt_keys WHERE status = 0")
-            elif status == "dead":
-                c.execute("SELECT COUNT(*) FROM neuralwatt_keys WHERE status = 2")
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "UPDATE accounts SET is_active = ? WHERE SUBSTR(email, 1, 64) = ?", (is_active, truncated_name))
+    except Exception as e:
+        print(f"[ERROR] 按截断名称更新活跃状态失败: {e}")
+
+
+def remove_account_push_platform(identifier: str, platform: str, exact_match: bool = True):
+    if not identifier: return
+    target_platform = platform.strip().upper()
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            if exact_match:
+                execute_sql(c, "SELECT email, push_platform FROM accounts WHERE email = ?", (identifier,))
             else:
-                c.execute("SELECT COUNT(*) FROM neuralwatt_keys")
-            return c.fetchone()[0]
-    except Exception:
-        return 0
+                execute_sql(c, "SELECT email, push_platform FROM accounts WHERE SUBSTR(email, 1, 64) = ?",
+                            (identifier,))
+
+            rows = c.fetchall()
+            for row in rows:
+                db_email = row[0]
+                current_raw = row[1] if row[1] else ""
+
+                parts = [p.strip().upper() for p in current_raw.split(',') if p.strip()]
+                if target_platform in parts:
+                    parts.remove(target_platform)
+                    new_val = ",".join(sorted(list(set(parts)))) if parts else ""
+                    execute_sql(c, "UPDATE accounts SET push_platform = ?, is_active = 0 WHERE email = ?",
+                                (new_val, db_email))
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 剥离推送平台记录失败: {e}")
+
+
+def get_account_full_info(email: str) -> dict:
+    try:
+        with get_db_conn(as_dict=True) as conn:
+            c = get_cursor(conn, as_dict=True)
+            execute_sql(c, "SELECT password, token_data, push_platform FROM accounts WHERE email = ?", (email,))
+            row = c.fetchone()
+            if row:
+                res = dict(row)
+                res['token_data'] = json.loads(res['token_data']) if res['token_data'] else {}
+                return res
+            return None
+    except Exception as e:
+        print(f"[ERROR] 获取账号全量信息失败: {e}")
+        return None
+
+
+def update_account_token_only(email: str, token_json_str: str) -> bool:
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "UPDATE accounts SET token_data = ? WHERE email = ?", (token_json_str, email))
+            return True
+    except Exception as e:
+        print(f"[ERROR] 仅更新 Token 失败: {e}")
+        return False
+
+
+def import_team_accounts(team_data_list: list) -> int:
+    count = 0
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            for td in team_data_list:
+                try:
+                    execute_sql(c, '''
+                        INSERT OR IGNORE INTO team_accounts (email, access_token, cookies, status)
+                        VALUES (?, ?, ?, ?)
+                    ''', (
+                    td.get('email', ''), td.get('access_token', ''), td.get('cookies', ''), td.get('status', 1)))
+                    if c.rowcount > 0:
+                        count += 1
+                except Exception as ex:
+                    pass
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 导入 Team 库失败: {e}")
+    return count
+
+
+def get_team_accounts_page(page: int = 1, page_size: int = 50, search: str = None) -> dict:
+    try:
+        with get_db_conn(as_dict=True) as conn:
+            c = get_cursor(conn, as_dict=True)
+            conditions = []
+            params = []
+
+            if search:
+                conditions.append("(email LIKE ? OR access_token LIKE ?)")
+                search_term = f"%{search}%"
+                params.extend([search_term, search_term])
+
+            where_clause = ""
+            if conditions:
+                where_clause = " WHERE " + " AND ".join(conditions)
+
+            count_sql = f"SELECT COUNT(1) AS cnt FROM team_accounts{where_clause}"
+            if params:
+                execute_sql(c, count_sql, tuple(params))
+            else:
+                execute_sql(c, count_sql)
+
+            total_row = c.fetchone()
+            total = total_row['cnt'] if DB_TYPE == "mysql" else total_row[0]
+            offset = (page - 1) * page_size
+
+            data_sql = f"SELECT id, email, access_token, cookies, status, created_at FROM team_accounts{where_clause} ORDER BY id DESC LIMIT ? OFFSET ?"
+            data_params = tuple(params + [page_size, offset])
+            execute_sql(c, data_sql, data_params)
+            rows = c.fetchall()
+
+            return {"total": total, "data": [dict(r) for r in rows]}
+    except Exception as e:
+        print(f"[ERROR] 分页获取 Team 库列表失败: {e}")
+        return {"total": 0, "data": []}
+
+
+def delete_team_accounts(ids: list) -> bool:
+    if not ids: return True
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            placeholders = ','.join(['?'] * len(ids))
+            execute_sql(c, f"DELETE FROM team_accounts WHERE id IN ({placeholders})", tuple(ids))
+            return True
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 删除 Team 账号失败: {e}")
+        return False
+
+
+def clear_all_team_accounts() -> bool:
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            execute_sql(c, "DELETE FROM team_accounts")
+            return True
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 清空 Team 库失败: {e}")
+        return False
+
+
+def get_random_team_account() -> dict:
+    try:
+        with _team_db_lock:
+            with get_db_conn(as_dict=True) as conn:
+                c = get_cursor(conn, as_dict=True)
+                order_clause = "RAND()" if DB_TYPE == "mysql" else "RANDOM()"
+                sql = f"SELECT id, email, access_token, cookies FROM team_accounts WHERE status = 1 ORDER BY {order_clause} LIMIT 1"
+                execute_sql(c, sql)
+                row = c.fetchone()
+                if row:
+                    return dict(row)
+                return None
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 随机提取 Team 账号失败: {e}")
+        return None
+
+
+def get_all_team_accounts() -> list:
+    try:
+        with get_db_conn(as_dict=True) as conn:
+            c = get_cursor(conn, as_dict=True)
+            execute_sql(c, "SELECT id, email, access_token, cookies FROM team_accounts WHERE status = 1")
+            rows = c.fetchall()
+            return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 获取所有 Team 账号失败: {e}")
+        return []
+
+
+def delete_sys_kvs(keys: list) -> bool:
+    if not keys: return True
+    try:
+        with get_db_conn(is_write=True) as conn:
+            c = get_cursor(conn)
+            placeholders = ','.join(['?'] * len(keys))
+            execute_sql(c, f"DELETE FROM system_kv WHERE `key` IN ({placeholders})", tuple(keys))
+            return True
+    except Exception as e:
+        print(f"[{cfg.ts()}] [ERROR] 批量删除系统 KV 异常: {e}")
+        return False

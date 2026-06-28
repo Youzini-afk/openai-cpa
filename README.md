@@ -1,6 +1,14 @@
 ﻿# Wenfxl Codex Manager Web Console
-[![Telegram Group](https://img.shields.io/badge/Telegram-Community_Chat-0088cc?style=for-the-badge&logo=telegram)](https://t.me/+4AmjbVPvvRgxMDVl)
+[![Telegram Group](https://img.shields.io/badge/Telegram-Community_Chat-0088cc?style=for-the-badge&logo=telegram)](https://t.me/+srBiKuPvn4A3YmNl)
 [![License](https://img.shields.io/badge/License-CC_BY--NC_4.0-lightgrey?style=for-the-badge)](https://creativecommons.org/licenses/by-nc/4.0/legalcode)
+
+> ⚠️ **CRITICAL UPDATE (April 29, 2026) 20:29**
+> 
+> The official Telegram community has been fully migrated! The original group is no longer active.
+> 
+> **ATTENTION:** The authentication system of Wenfxl Codex Manager is strictly bound to our official group. All users MUST **join the new group immediately**. Failure to do so will result in an HTTP 403 error and automatic service suspension during the next silent authorization check.
+> 
+> 👉 **[Click Here to Join the NEW Official Group](https://t.me/+srBiKuPvn4A3YmNl)**
 
 An advanced Distributed Automation Platform for high-concurrency account registration and full-lifecycle inventory management. It serves as a centralized Web Orchestration Hub that seamlessly synchronizes distributed browser extension workers (Classic Mode), multi-backend mailbox engines, and enterprise-grade cloud warehouses (CPA/Sub2API) into a unified master-worker ecosystem.
 
@@ -40,6 +48,14 @@ Install Python Dependencies Install the required base libraries using the requir
 ```bash
 pip install -r requirements.txt
 ```
+
+## ☕ Buy me a coffee
+
+If you find this tool helpful or if it has saved you time, consider buying me a coffee! Your support is a great motivation for continuous maintenance and updates.
+- **Afdian:** [https://ifdian.net/a/wenfxl](https://ifdian.net/a/wenfxl)
+- **USDT (TRX/Tron/TRC20):** `TLMNmyfUajfGSBhUfJ1orqxpvv7BWFnDqN`
+- **USDT (BSC/BNB Smart Chain/BEP20):** `0x2da26c472097f269217390e44ff00c7d087699a6`
+
 ## Web Console Preview
 
 <details>
@@ -253,20 +269,63 @@ services:
     image: wenfxl/wenfxl-codex-manager:latest
     container_name: wenfxl_codex_manager
     ports:
-      - "8899:8000"
+      - "8000:8000"
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - HOST_PROJECT_PATH=${PWD}
+    volumes:
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker
+      - .:${PWD}
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=openai-cpa"
+
+  watchtower:
+    image: nickfedor/watchtower:latest
+    container_name: watchtower
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --scope openai-cpa --interval 86400 --cleanup
+
+
+
+```
+
+The repository includes a ready-to-use `docker-compose2.yml` for starting the **Wenfxl Codex Manager Web Console** with persistent config and data mounts. Stateless containers can connect to a cloud MySQL database, and all configuration parameters and data will be stored in the cloud database.
+
+Current compose example:
+
+```yaml
+version: '3.8'
+
+services:
+  codex-web:
+    image: wenfxl/wenfxl-codex-manager:latest
+    container_name: wenfxl_codex_manager
+    ports:
+      - "8000:8000"
     restart: always
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/app/data
-
-  watchtower:
-    image: containrrr/watchtower
-    container_name: watchtower
-    restart: always
-    volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 86400 --cleanup
+      - /usr/bin/docker:/usr/bin/docker
+      - .:${PWD}
+    environment:
+      - HOST_PROJECT_PATH=${PWD}
+      - TZ=Asia/Shanghai
+      - DB_TYPE=mysql
+      - DB_HOST=你的云端MySQL地址
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASS=你的数据库密码
+      - DB_NAME=wenfxl_manager
 ```
 
 ### Docker deployment steps
@@ -288,6 +347,12 @@ docker compose logs -f
 
 ```bash
 docker compose down
+```
+
+5. update:
+
+```bash
+docker-compose pull wenfxl/wenfxl-codex-manager:latest
 ```
 config directly
 Notes:
@@ -373,143 +438,22 @@ If you use server-side concurrent registration and want each worker to use an in
 
 and pair them with corresponding controller APIs. Then fill `warp_proxy_list` and enable `pool_mode: true`.
 
-### 8. Create a Clash proxy pool with a deployment script
+### 8. Deploy a Clash Proxy Cluster via Web Console (Recommended)
 
-You can also create a Clash proxy pool on a server by generating multiple Mihomo containers through a shell script.
+The legacy shell script deployment has been deprecated and replaced by the powerful built directly into the web console. You can now dynamically scale, configure, and route your Mihomo (Clash) containers without ever touching the command line.
 
-#### Step 1: remove the old script if it exists
+#### Step 1: Access the Proxy Settings
+Log in to the Wenfxl Web Console and navigate to the **[Network Proxy]** tab.
 
-```bash
-rm -f /root/run_clash.sh
-```
+#### Step 2: Scale the Cluster
+Locate the **Mihomo Instance Cluster Control** panel. Enter your desired number of container instances (e.g., `5`) and click **[Sync Scale]**. The backend will automatically create and map the Docker containers for you.
+*(Note: Proxy ports are automatically mapped starting from 41001, and API ports from 42001).*
 
-#### Step 2: create the script file
+#### Step 3: Distribute Subscription
+In the **Subscription Update** section, paste your proxy subscription URL and click **[Distribute]**. The system will automatically fetch the nodes, apply necessary patches (enabling LAN and API access), and restart the instances. 
 
-```bash
-nano /root/run_clash.sh
-```
-
-After pasting the script content:
-- press `Ctrl+O`
-- press `Enter`
-- press `Ctrl+X`
-
-#### Step 3: grant execute permission
-
-```bash
-chmod +x /root/run_clash.sh
-```
-
-#### Step 4: run the script
-
-```bash
-/root/run_clash.sh
-```
-
-#### Script example
-
-```bash
-#!/bin/bash
-
-# ================= Configuration =================
-# Mode selection: 1 = single-subscription mode (1 URL distributed to 10 containers)
-#                 2 = multi-subscription mode (10 URLs mapped to 10 containers)
-MODE=1
-
-# If MODE=1, fill this single URL
-SINGLE_URL="https://你的链接"
-
-# If MODE=2, fill up to 10 URLs in order.
-# If fewer URLs are filled, only that many containers will be created.
-URLS=(
- "https://链接1"
- "https://链接2"
- "https://链接3"
- "https://链接4"
- "https://链接5"
- "https://链接6"
- "https://链接7"
- "https://链接8"
- "https://链接9"
- "https://链接10"
-)
-# ================================================
-
-WORK_DIR="/root/clash-pool"
-mkdir -p $WORK_DIR && cd $WORK_DIR
-
-if [ "$MODE" == "1" ]; then
- COUNT=10
-else
- COUNT=${#URLS[@]}
-fi
-
-echo "--- Current mode: $MODE [1:single-subscription, 2:multi-subscription] ---"
-
-cat <<EOF > docker-compose.yml
-version: "3"
-services:
-$(for ((i=1; i<=COUNT; i++)); do
- PROXY_PORT=$((41000 + i))
- API_PORT=$((42000 + i))
- echo " clash_$i:
- image: metacubex/mihomo:latest
- container_name: clash_$i
- restart: always
- volumes:
- - ./config_$i/config.yaml:/root/.config/mihomo/config.yaml
- ports:
- - \"$PROXY_PORT:7890\"
- - \"$API_PORT:9090\""
-done)
-EOF
-
-docker compose down --remove-orphans
-
-if [ "$MODE" == "1" ]; then
- echo "--- Running single-subscription distribution mode ---"
- mkdir -p config_1
- wget -q -U "Clash-meta" -O ./config_1/config.yaml "$SINGLE_URL"
- if [ -s "./config_1/config.yaml" ]; then
-  for ((i=2; i<=COUNT; i++)); do
-   mkdir -p "config_$i"
-   \cp -f "./config_1/config.yaml" "./config_$i/config.yaml"
-  done
- fi
-else
- echo "--- Running multi-subscription download mode ---"
- for ((i=1; i<=COUNT; i++)); do
-  idx=$((i-1))
-  CURRENT_URL=${URLS[$idx]}
-  mkdir -p "config_$i"
-  wget -q -U "Clash-meta" -O "./config_$i/config.yaml" "$CURRENT_URL"
-  echo " -> container $i download complete"
- done
-fi
-
-for ((i=1; i<=COUNT; i++)); do
- CONF="./config_$i/config.yaml"
- if [ -f "$CONF" ]; then
-  grep -q "allow-lan:" "$CONF" && sed -i 's/allow-lan: .*/allow-lan: true/g' "$CONF" || echo "allow-lan: true" >> "$CONF"
-  grep -q "external-controller:" "$CONF" && sed -i 's/external-controller: .*/external-controller: 0.0.0.0:9090/g' "$CONF" || echo "external-controller: 0.0.0.0:9090" >> "$CONF"
- fi
-done
-
-docker compose up -d
-
-echo ""
-echo "=========================================="
-echo " Copy the following into your script config: "
-echo "=========================================="
-echo "warp_proxy_list:"
-for ((i=1; i<=COUNT; i++)); do
- echo " - \"http://127.0.0.1:$((41000 + i))\""
-done
-echo "=========================================="
-echo ""
-
-echo "--- Deployment completed! Started $COUNT containers ---"
-```
+#### Step 4: One-Click Pool Sync
+Click the purple **[🔗 Sync to Exclusive Pool]** button at the top of the panel. This will automatically calculate the internal routing addresses of your new cluster and link them directly to the smart proxy pool for load balancing.
 
 ## Output Files
 
@@ -589,6 +533,16 @@ Check the following:
 - Prefer stronger secret handling for mailbox admin credentials, CPA tokens, and Clash controller secrets.
 - Restrict access to the output directory.
 - If used in a team environment, add audit logging and permission boundaries.
+
+## Contributors
+
+Thanks to all the developers who have contributed to this project:
+
+<a href="https://github.com/kamill7779"><img src="https://wsrv.nl/?url=github.com/kamill7779.png&mask=circle" width="80" title="kamill7779" alt="kamill7779"></a>
+<a href="https://github.com/s12ryt"><img src="https://wsrv.nl/?url=github.com/s12ryt.png&mask=circle" width="80" title="s12ryt" alt="s12ryt"></a>
+<a href="https://github.com/SYFATP"><img src="https://wsrv.nl/?url=github.com/SYFATP.png&mask=circle" width="80" title="SYFATP" alt="SYFATP"></a>
+<a href="https://github.com/YuHaiA"><img src="https://wsrv.nl/?url=github.com/YuHaiA.png&mask=circle" width="80" title="YuHaiA" alt="YuHaiA"></a>
+<a href="https://github.com/haocenchen-debug"><img src="https://wsrv.nl/?url=github.com/haocenchen-debug.png&mask=circle" width="80" title="haocenchen-debug" alt="haocenchen-debug"></a>
 
 ## Terms of Use & License
 

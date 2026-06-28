@@ -4,7 +4,7 @@
 # https://github.com/maillab/cloud-mail
 # https://github.com/s12ryt/mail-curl
 
-reg_mode: "protocol"
+reg_mode: "email"
 # 可选值: "imap" / "freemail" / "cloudflare_temp_email" / "cloudmail" / "mail_curl" / "luckmail"
 email_api_mode: "cloudflare_temp_email"
 
@@ -12,6 +12,19 @@ email_api_mode: "cloudflare_temp_email"
 # 你的域名 (支持逗号分隔多域名随机轮换) 如果只有一个域名就只填一个域名
 
 mail_domains: "domain1.com,domain2.xyz,domain3.net"
+disabled_mail_domains: []
+enable_mail_domain_runtime_control: false
+enable_mail_domain_grouping: false
+mail_domain_group_count: 2
+mail_domain_group_mode: "auto"
+mail_domain_group_strategy: "round_robin"
+mail_domain_groups: []
+mail_domain_pinpoint_burst_mode: false
+mail_domain_prefer_low_failure_mode: false
+mail_domain_failure_types:
+  - discarded_email
+mail_domain_fail_threshold: 3
+mail_domain_fail_cooldown_sec: 600
 
 #二级域名开关
 enable_sub_domains: false
@@ -35,6 +48,10 @@ gptmail_base: "https://your-domain.com" #是后端访问链接，不是前端访
 # [模式 "cloudflare_temp_email" 专属配置]
 # 你的临时邮箱管理员密码
 admin_auth: ""
+# [项目专属内存池邮箱配置]
+openai_cpa:
+  webhook_secret: "wenfxl_secret_key"
+  use_original_password_flow: false
 
 # [模式 "imap" 专属配置] (CF Catch-all 转发接收端)
 imap:
@@ -55,6 +72,9 @@ local_microsoft:
   master_email: ""
   client_id: ""
   refresh_token: ""
+  suffix_mode: "fixed"
+  suffix_len_min: 8
+  suffix_len_max: 8
   pool_fission: false
 
 # [模式 "freemail" 专属]
@@ -63,8 +83,8 @@ freemail:
   api_url: "https://your-domain.com"
   #JWTTOKEN
   api_token: ""
-  admin_username: 
-  admin_password: 
+  enable_local_webhook: false
+  webhook_secret: ""
 
 # [模式 "cloud-mail" 专属配置]
 cloudmail:
@@ -73,6 +93,8 @@ cloudmail:
   #管理员邮箱
   admin_email: "admin@your-domain.com"
   admin_password: "你的管理员密码"
+  enable_local_webhook: false
+  webhook_secret: ""
 
 # [模式 "mail_curl" 专属配置]
 mail_curl:
@@ -107,57 +129,20 @@ tmailor:
 # [FviaInboxes 配置]
 fvia:
   token: ''
+
+# Gmail OAuth 裂变配置
+gmail_oauth_mode:
+  master_email: ""           # Gmail 主号 (需已完成 credentials.json 授权)
+  fission_enable: false      # 是否开启 Gmail 裂变
+  fission_mode: "suffix"     # 裂变模式: suffix、dot
+  # 后缀生成配置 (当 fission_mode 为 suffix 时生效)
+  suffix_mode: "mystic"      # fixed (固定长度) / range (随机范围) / mystic (高拟真词库)
+  suffix_len_min: 8
+  suffix_len_max: 12
+
 # [代理配置]
 # openai注册时代理地址，例子：http://127.0.0.1:7897。如果是国外服务器此项可以不填
 default_proxy: ""
-
-qg_short_proxy:
-  # 青果短效代理，只填提取URL即可自动拉取并覆盖 default_proxy
-  enable: false
-  extract_url: ""
-  # 可选：如果你的短效代理走账密认证，再填写下面两项；白名单模式留空即可
-  auth_username: ""
-  auth_password: ""
-  # 提前多少秒刷新新IP，默认 5 秒
-  refresh_before_expire_seconds: 5
-  # 提取接口超时秒数
-  request_timeout_seconds: 10
-  # 提取失败/超时时，连续尝试几条候选短效IP
-  max_retry_candidates: 3
-  # 每条候选IP的联网测活超时秒数
-  probe_timeout_seconds: 10
-
-qg_dynamic_proxy:
-  # 青果动态隧道代理，开启后会自动覆盖 default_proxy
-  enable: false
-  host: ""
-  port: 12259
-  auth_key: ""
-  auth_pwd: ""
-  # 是否启用同一IP保持一段时间的隧道参数
-  sticky_session: false
-  # 可选，通道名，例如 reg1
-  channel: ""
-  # 可选，会拼成 :T120
-  session_seconds: 120
-  # 可选，国家地区编码，例如美国 990100
-  area_code: ""
-
-proxy_backend:
-  # external_clash | embedded_mihomo
-  mode: external_clash
-
-embedded_mihomo:
-  enable: false
-  subscription_url: ""
-  auto_update: false
-  update_interval_minutes: 60
-  mixed_port: 7897
-  controller_port: 9097
-  secret: "openai-cpa-mihomo"
-  group_name: "节点选择"
-  test_url: "https://www.gstatic.com/generate_204"
-  log_lines: 200
 
 # 是否开启注册多线程并发 (true/false)
 enable_multi_thread_reg: false    
@@ -166,7 +151,7 @@ reg_threads: 10
 
 
 
-# Clash 节点智能轮换（外接 Clash / 内置 Mihomo 共用的切点策略）
+# Clash 节点智能轮换（本地使用clash软件）
 clash_proxy_pool:
   # 【开关】是否在每次注册前自动通过 Clash 切换节点
   enable: false
@@ -176,6 +161,10 @@ clash_proxy_pool:
   api_url: "http://127.0.0.1:9097"
   #true为测速优选，false为随机盲抽。提示：如果A节点一直是最低延迟那么可能每次都是A节点。
   fastest_mode: false
+  # 目标集群实例数量
+  cluster_count: 5
+  # 订阅链接存储
+  sub_url: ""
   # 你机场包含所有节点的策略组名称，带有 Emoji 也没关系
   group_name: "节点选择"
   # Clash 的外部控制鉴权秘钥 (Secret)
@@ -203,6 +192,23 @@ clash_proxy_pool:
     - "China"
     - "回国"
 
+raw_proxy_pool:
+  # 独立于 Clash 的批量代理池；启用后优先使用这里的代理列表
+  # 支持 HTTP / HTTPS / SOCKS5 显式协议；未写协议时默认按 socks5h 解析
+  enable: false
+  proxy_list:
+    # 支持以下格式：
+    # - http://user:pass@host:8080
+    # - https://user:pass@host:8443
+    # - socks5://user:pass@host:1080
+    # - socks5h://user:pass@host:1080
+    # - host:port
+    # - host:port:user:pass
+    # - user:pass@host:port
+    - "http://user:pass@127.0.0.1:8080"
+    - "socks5://user:pass@127.0.0.1:1080"
+    - "127.0.0.1:1081:user:pass"
+
 warp_proxy_list:
   - "http://127.0.0.1:41001"
   - "http://127.0.0.1:41002"
@@ -218,6 +224,8 @@ warp_proxy_list:
 
 # [验证码重发次数配置，默认5次]
 max_otp_retries: 5
+# 验证码轮询次数
+otp_poll_max_attempts: 20
 
 # [邮箱代理专项配置]
 # 【开关】true 表示获取邮箱（谷歌）也用代理，false 表示直连（推荐先试 false）如果是国外服务器此项可以保持false
@@ -229,6 +237,9 @@ enable_email_masking: true
 #注册后等待多少秒在去拿tokens,默认是5-15秒之内
 login_delay_min: 20
 login_delay_max: 45
+
+#常规模式是否保存仅注册账号，用于后续手动登录或者其他作用
+retain_reg_only: false
 
 # CPA 模式专属配置
 cpa_mode:
@@ -258,6 +269,9 @@ cpa_mode:
   check_interval_minutes: 60
   #并发线程数配置，默认 10 线程
   threads: 10
+  #是否保存仅注册账号，用于后续手动登录或者其他作用
+  retain_reg_only: false
+  auto_re_oauth: false
 
 # SUB2APIA配置 参数含义跟CPA相同
 sub2api_mode:
@@ -279,37 +293,37 @@ sub2api_mode:
   account_rate_multiplier: 1.0
   account_group_ids: ""
   enable_ws_mode: true
-  test_model: "gpt-5.2"
+  test_model: "gpt-5.4-mini"
+  default_proxy: ""
+  #是否保存仅注册账号，用于后续手动登录或者其他作用
+  retain_reg_only: false
+  auto_re_oauth: false
+
+image2api_mode:
+  enable: false
+  api_url: ""
+  api_key: ""
+  retain_reg_only: false
+  img_only_mode: false
 
 codex2api_mode:
   enable: false
-  api_url:
-  admin_key:
+  api_url: ""
+  admin_key: ""
   push_source: "register-oss"
   threads: 10
 
-# Neuralwatt Cloud 注册模式配置
 neuralwatt_mode:
   enable: false
-  # Turnstile 人机验证解决方案: capsolver / 2captcha / playwright / 留空默认playwright
   turnstile_service: ""
-  # 验证码服务 API Key (capsolver 或 2captcha)
   turnstile_api_key: ""
-  # 注册后是否自动创建 API Key
   auto_create_api_key: true
-  # 测试模型 (用于验证 API Key 是否可用)
   test_model: "meta-llama/Llama-3.3-70B-Instruct"
-  # 邮箱验证链接轮询最大尝试次数
   verify_max_attempts: 30
-  # 并发线程数
   threads: 10
-  # 巡检间隔 (分钟)
   check_interval_minutes: 60
-  # 存量阈值
   min_accounts_threshold: 20
-  # 每次补货数量
   batch_reg_count: 1
-  # 是否使用浏览器扩展古法模式（需配合 reg_mode: extension）
   use_extension: false
 
 auto_push:
@@ -317,6 +331,42 @@ auto_push:
   sub2api: false
   codex2api: false
   neuralwatt: false
+
+proxy_backend:
+  mode: "external_clash" # external_clash / embedded_mihomo
+
+embedded_mihomo:
+  enable: false
+  subscription_url: ""
+  auto_update: false
+  update_interval_minutes: 60
+  mixed_port: 7897
+  controller_port: 9097
+  secret: "openai-cpa-mihomo"
+  group_name: "节点选择"
+  test_url: "https://www.gstatic.com/generate_204"
+  log_lines: 200
+
+qg_short_proxy:
+  enable: false
+  extract_url: ""
+  auth_username: ""
+  auth_password: ""
+  refresh_before_expire_seconds: 5
+  request_timeout_seconds: 10
+  max_retry_candidates: 3
+  probe_timeout_seconds: 10
+
+qg_dynamic_proxy:
+  enable: false
+  host: ""
+  port: 12259
+  auth_key: ""
+  auth_pwd: ""
+  sticky_session: false
+  channel: ""
+  session_seconds: 120
+  area_code: ""
 
 hero_sms:
   enabled: false
@@ -328,9 +378,47 @@ hero_sms:
   verify_on_register: false
   reuse_phone: true
   max_price: 0.08
+  min_price: 0.05
   min_balance: 1
   max_tries: 3
   poll_timeout_sec: 120
+  reuse_max: 2
+  use_proxy: false
+
+smsbower:
+  enabled: false
+  api_key:
+  base_url: https://smsbower.page/stubs/handler_api.php
+  country: 0
+  service: dr
+  auto_pick_country: false
+  verify_on_register: false
+  reuse_phone: true
+  max_price: 0.08
+  min_balance: 1
+  max_tries: 3
+  poll_timeout_sec: 120
+  reuse_max: 2
+  operator: ""
+  use_proxy: false
+  web_cookie: ""
+
+fivesim:
+  enabled: false
+  api_key: ""
+  service: "openai"
+  country: "any"
+  auto_pick_country: true
+  verify_on_register: false
+  reuse_phone: true
+  max_price: 50.0
+  min_price: 0.0
+  min_balance: 10.0
+  max_tries: 3
+  poll_timeout_sec: 180
+  reuse_max: 2
+  operator: ""
+  use_proxy: false
 
 # 常规量产模式专属配置
 normal_mode:
@@ -340,6 +428,8 @@ normal_mode:
   sleep_max: 30
   # 单次(每批)执行的注册总数
   target_count: 2
+  # 是否保存提取的 image2api 数据到本地库
+  save_img_to_local: false
 
 tg_bot:
   enable: false
@@ -348,14 +438,32 @@ tg_bot:
   mask_email: false
   mask_password: false
 
+# 数据库适配，默认为本地sqlite
+database:
+  type: "sqlite"  # 可选值: "sqlite" 或 "mysql"
+  mysql:
+    host: "127.0.0.1"
+    port: 3306
+    user: "root"
+    password: ""
+    db_name: "wenfxl_manager"
+
+team_mode:
+  enable: false
+  overspeed: false
+
 # WEB端密码
 web_password: admin
 #CF账号
 cf_api_email: 
 #CF KEY
 cf_api_key:
-
+max_log_lines: "500"
+cluster_upload_timeout_sec: "15"
 #集群总控
 cluster_node_name: "NODE-1"
 cluster_master_url: ""
 cluster_secret: "wenfxl666"
+
+# 是否放弃强行变道走无密码OTP
+disable_forced_takeover: true

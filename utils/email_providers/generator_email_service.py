@@ -2,7 +2,7 @@ import re
 import time
 from curl_cffi import requests
 from utils import config as cfg
-
+from curl_cffi import CurlHttpVersion
 
 class GeneratorEmailService:
     def __init__(self, proxies=None):
@@ -44,8 +44,10 @@ class GeneratorEmailService:
                 headers=self.headers,
                 proxies=self.proxies,
                 timeout=self.timeout,
-                impersonate="chrome110"
+                impersonate="chrome110",
+                http_version=CurlHttpVersion.V1_1
             )
+
             if resp.status_code == 200:
                 email = self._parse_email(resp.text)
                 if email:
@@ -57,11 +59,43 @@ class GeneratorEmailService:
             print(f"[{cfg.ts()}] [ERROR] GeneratorEmail 创建异常: {e}")
         return None, None
 
-    def get_verification_code(self, surl: str) -> str:
-        if not surl:
-            return ""
+    # def get_verification_code(self, surl: str) -> str:
+    #     if not surl:
+    #         return ""
+    #
+    #     mailbox_url = f"{self.base_url}/{surl}"
+    #     cookies = {"surl": surl}
+    #
+    #     try:
+    #         resp = requests.get(
+    #             mailbox_url,
+    #             headers=self.headers,
+    #             cookies=cookies,
+    #             proxies=self.proxies,
+    #             timeout=self.timeout,
+    #             impersonate="chrome110"
+    #         )
+    #         if resp.status_code == 200:
+    #             html = resp.text or ""
+    #             direct = re.findall(r"Your ChatGPT code is (\d{6})", html, re.I)
+    #             if direct: return direct[-1]
+    #
+    #             contextual = re.findall(r"(?:openai|chatgpt)[\s\S]{0,200}?(\d{6})", html, re.I)
+    #             if contextual: return contextual[-1]
+    #             if "openai" in html.lower() or "chatgpt" in html.lower():
+    #                 generic = re.findall(r"\b(\d{6})\b", html)
+    #                 if generic: return generic[-1]
+    #
+    #     except Exception as e:
+    #         pass
+    #     return ""
 
-        mailbox_url = f"{self.base_url}/{surl}"
+
+    def get_inbox_links(self, surl: str) -> list:
+        if not surl:
+            return []
+
+        mailbox_url = f"{self.base_url}/{surl.lstrip('/')}"
         cookies = {"surl": surl}
 
         try:
@@ -71,19 +105,52 @@ class GeneratorEmailService:
                 cookies=cookies,
                 proxies=self.proxies,
                 timeout=self.timeout,
-                impersonate="chrome110"
+                impersonate="chrome110",
+                http_version=CurlHttpVersion.V1_1
             )
             if resp.status_code == 200:
                 html = resp.text or ""
-                direct = re.findall(r"Your ChatGPT code is (\d{6})", html, re.I)
-                if direct: return direct[-1]
 
-                contextual = re.findall(r"(?:openai|chatgpt)[\s\S]{0,200}?(\d{6})", html, re.I)
-                if contextual: return contextual[-1]
-                if "openai" in html.lower() or "chatgpt" in html.lower():
-                    generic = re.findall(r"\b(\d{6})\b", html)
-                    if generic: return generic[-1]
+                pattern = r'<a href="([^"]+)"[^>]*>([\s\S]*?)</a>'
+                links = re.findall(pattern, html)
 
+                results = []
+                for href, inner_html in links:
+                    m_id = href.split('/')[-1]
+                    results.append({
+                        "href": href,
+                        "id": m_id
+                    })
+                return results
         except Exception as e:
-            pass
+            print(f"[{cfg.ts()}] [ERROR] 获取邮件列表异常: {e}")
+        return []
+
+
+    def get_code_from_detail(self, href: str, surl: str) -> str:
+        from utils.email_providers.mail_service import _extract_otp_code,_clean_html_to_text
+        if not href:
+            return ""
+
+        detail_url = f"{self.base_url}/{href.lstrip('/')}" if not href.startswith("http") else href
+        cookies = {"surl": surl}
+
+        try:
+            resp = requests.get(
+                detail_url,
+                headers=self.headers,
+                cookies=cookies,
+                proxies=self.proxies,
+                timeout=self.timeout,
+                impersonate="chrome110",
+                http_version=CurlHttpVersion.V1_1
+            )
+            if resp.status_code == 200:
+                raw_html = resp.text or ""
+                clean_text = _clean_html_to_text(raw_html)
+                code = _extract_otp_code(clean_text)
+                if code:
+                    return code
+        except Exception as e:
+            print(f"[{cfg.ts()}] [ERROR] 提取详情页验证码异常: {e}")
         return ""

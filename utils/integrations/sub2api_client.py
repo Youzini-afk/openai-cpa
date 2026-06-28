@@ -1,12 +1,107 @@
 import json
 import logging
 import time
+from urllib.parse import urlparse
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 from utils import config as cfg
 from curl_cffi import requests as cffi_requests
+from utils.integrations.sub2api_proxy import parse_sub2api_proxy
 
 logger = logging.getLogger(__name__)
+
+
+def get_sub2api_push_settings() -> Dict[str, Any]:
+    def as_int(value: Any, default: int, minimum: int) -> int:
+        try:
+            return max(minimum, int(value))
+        except (TypeError, ValueError):
+            return default
+
+    def as_float(value: Any, default: float, minimum: float) -> float:
+        try:
+            return max(minimum, float(value))
+        except (TypeError, ValueError):
+            return default
+
+    raw_group_ids = getattr(cfg, "SUB2API_ACCOUNT_GROUP_IDS", [])
+    if isinstance(raw_group_ids, list):
+        group_ids = [int(item) for item in raw_group_ids if str(item).strip().isdigit()]
+    else:
+        group_ids = [int(item.strip()) for item in str(raw_group_ids or "").split(",") if item.strip().isdigit()]
+
+    return {
+        "concurrency": as_int(getattr(cfg, "SUB2API_ACCOUNT_CONCURRENCY", 10), 10, 1),
+        "load_factor": as_int(getattr(cfg, "SUB2API_ACCOUNT_LOAD_FACTOR", 10), 10, 1),
+        "priority": as_int(getattr(cfg, "SUB2API_ACCOUNT_PRIORITY", 1), 1, 1),
+        "rate_multiplier": as_float(getattr(cfg, "SUB2API_ACCOUNT_RATE_MULTIPLIER", 1.0), 1.0, 0.0),
+        "group_ids": group_ids,
+        "enable_ws": bool(getattr(cfg, "SUB2API_ENABLE_WS_MODE", True)),
+    }
+
+
+def _build_account_extra(settings: Dict[str, Any]) -> Dict[str, Any]:
+    extra = {"load_factor": settings["load_factor"]}
+    if settings["enable_ws"]:
+        extra["openai_oauth_responses_websockets_v2_enabled"] = True
+        extra["openai_oauth_responses_websockets_v2_mode"] = "passthrough"
+    return extra
+
+
+def _build_account_item(token_data: Dict[str, Any], settings: Dict[str, Any], proxy_obj: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    account_item = {
+        "name": str(token_data.get("email", "unknown"))[:64],
+        "platform": "openai",
+        "type": "oauth",
+        "credentials": {
+            "access_token": token_data.get("access_token", ""),
+            "chatgpt_account_id": token_data.get("account_id", ""),
+            "client_id": token_data.get("client_id", ""),
+            "expires_at": int(time.time() + 864000),
+            "expires_in": 863999,
+            "model_mapping": {
+                "gpt-5.4-mini": "gpt-5.4-mini",
+                "gpt-5.5": "gpt-5.5",
+            },
+            "organization_id": token_data.get("workspace_id", ""),
+            "refresh_token": token_data.get("refresh_token", ""),
+        },
+        "extra": _build_account_extra(settings),
+        "concurrency": settings["concurrency"],
+        "priority": settings["priority"],
+        "rate_multiplier": settings["rate_multiplier"],
+        "auto_pause_on_expired": True,
+    }
+    if settings["group_ids"]:
+        account_item["group_ids"] = settings["group_ids"]
+    if proxy_obj and "proxy_key" in proxy_obj:
+        account_item["proxy_key"] = proxy_obj["proxy_key"]
+    return account_item
+
+
+def build_sub2api_export_bundle(
+    token_items: List[Dict[str, Any]],
+    settings: Optional[Dict[str, Any]] = None,
+    *,
+    rotate_missing_proxy: bool = False,
+) -> Dict[str, Any]:
+    push_settings = settings or get_sub2api_push_settings()
+    proxies_by_key: Dict[str, Dict[str, Any]] = {}
+    accounts: List[Dict[str, Any]] = []
+
+    for token_data in token_items:
+        proxy_obj = token_data.get("sub2api_proxy")
+        if proxy_obj is None and rotate_missing_proxy:
+            proxy_obj = parse_sub2api_proxy(cfg.get_next_sub2api_proxy_url())
+        if proxy_obj and proxy_obj.get("proxy_key"):
+            proxies_by_key[proxy_obj["proxy_key"]] = proxy_obj
+        accounts.append(_build_account_item(token_data, push_settings, proxy_obj))
+
+    return {
+        "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "proxies": list(proxies_by_key.values()),
+        "accounts": accounts,
+    }
 
 
 class Sub2APIClient:
@@ -20,6 +115,20 @@ class Sub2APIClient:
             "timeout": 15,
             "impersonate": "chrome110",
         }
+
+    def _build_network_error(self, exc: Exception) -> str:
+        msg = str(exc)
+        host = (urlparse(self.api_url).hostname or "").strip()
+        if "Could not resolve host" in msg and host:
+            return (
+                f"{msg} | 本机 DNS 无法解析 {host}，"
+                "请优先检查本机或路由器 DNS，或暂时切换到公共 DNS 后重试"
+            )
+        return msg
+
+    @staticmethod
+    def _is_dns_resolution_error(message: Any) -> bool:
+        return "Could not resolve host" in str(message or "")
 
     def _handle_response(
         self,
@@ -43,45 +152,10 @@ class Sub2APIClient:
         return False, error_msg
 
     def _get_push_settings(self) -> Dict[str, Any]:
-        try:
-            import utils.config as cfg
-        except ImportError:
-            cfg = None
-
-        def as_int(value: Any, default: int, minimum: int) -> int:
-            try:
-                return max(minimum, int(value))
-            except (TypeError, ValueError):
-                return default
-        def as_float(value: Any, default: float, minimum: float) -> float:
-            try:
-                return max(minimum, float(value))
-            except (TypeError, ValueError):
-                return default
-
-        raw_group_ids = getattr(cfg, "SUB2API_ACCOUNT_GROUP_IDS", []) if cfg else []
-        if isinstance(raw_group_ids, list):
-            group_ids = [int(item) for item in raw_group_ids if str(item).strip().isdigit()]
-        else:
-            group_ids = [int(item.strip()) for item in str(raw_group_ids or "").split(",") if
-                         item.strip().isdigit()]
-
-        return {
-            "concurrency": as_int(getattr(cfg, "SUB2API_ACCOUNT_CONCURRENCY", 10) if cfg else 10, 10, 1),
-            "load_factor": as_int(getattr(cfg, "SUB2API_ACCOUNT_LOAD_FACTOR", 10) if cfg else 10, 10, 1),
-            "priority": as_int(getattr(cfg, "SUB2API_ACCOUNT_PRIORITY", 1) if cfg else 1, 1, 1),
-            "rate_multiplier": as_float(getattr(cfg, "SUB2API_ACCOUNT_RATE_MULTIPLIER", 1.0) if cfg else 1.0, 1.0,
-                                        0.0),
-            "group_ids": group_ids,
-            "enable_ws": bool(getattr(cfg, "SUB2API_ENABLE_WS_MODE", True) if cfg else True),
-        }
+        return get_sub2api_push_settings()
 
     def _build_account_extra(self, settings: Dict[str, Any]) -> Dict[str, Any]:
-        extra = {"load_factor": settings["load_factor"]}
-        if settings["enable_ws"]:
-            extra["openai_oauth_responses_websockets_v2_enabled"] = True
-            extra["openai_oauth_responses_websockets_v2_mode"] = "passthrough"
-        return extra
+        return _build_account_extra(settings)
 
     def _refresh_created_account(self, account_id: str) -> None:
         if not account_id:
@@ -112,43 +186,12 @@ class Sub2APIClient:
 
     def _import_account(self, token_data: Dict[str, Any], settings: Dict[str, Any]) -> Tuple[bool, str]:
         url = f"{self.api_url}/api/v1/admin/accounts/data"
-        exported_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        extra = self._build_account_extra(settings)
-
-        account_item = {
-            "name": token_data.get("email", "unknown"),
-            "platform": "openai",
-            "type": "oauth",
-            "credentials": {
-                "access_token": token_data.get("access_token", ""),
-                "chatgpt_account_id": token_data.get("account_id", ""),
-                "client_id": token_data.get("client_id", ""),
-                "expires_at": int(time.time() + 864000),
-                "expires_in": 863999,
-                "model_mapping": {
-                    "gpt-4o": "gpt-4o",
-                    "gpt-4": "gpt-4",
-                    "gpt-3.5-turbo": "gpt-3.5-turbo",
-                },
-                "organization_id": token_data.get("workspace_id", ""),
-                "refresh_token": token_data.get("refresh_token", ""),
-            },
-            "extra": extra,
-            "concurrency": settings["concurrency"],
-            "priority": settings["priority"],
-            "rate_multiplier": settings["rate_multiplier"],
-            "auto_pause_on_expired": True,
-        }
-        if settings["group_ids"]:
-            account_item["group_ids"] = settings["group_ids"]
-
+        bundle = build_sub2api_export_bundle([token_data], settings, rotate_missing_proxy=True)
         payload = {
             "data": {
                 "type": "sub2api-data",
                 "version": 1,
-                "exported_at": exported_at,
-                "proxies": [],
-                "accounts": [account_item],
+                **bundle,
             },
             "skip_default_group_bind": not bool(settings["group_ids"]),
         }
@@ -178,62 +221,170 @@ class Sub2APIClient:
             "page_size": page_size,
         }
         try:
-            response = cffi_requests.get(url, headers=self.headers, params=params, **self.request_kwargs)
+            request_kwargs = dict(self.request_kwargs)
+            # 全量库存接口体积较大，分页读取时放宽超时，降低本地网络抖动造成的误判。
+            request_kwargs["timeout"] = max(int(request_kwargs.get("timeout", 15)), 45)
+            response = cffi_requests.get(url, headers=self.headers, params=params, **request_kwargs)
             return self._handle_response(response)
         except Exception as exc:
             logger.error("Get Sub2API accounts failed: %s", exc)
-            return False, str(exc)
+            return False, self._build_network_error(exc)
 
     def get_all_accounts(self, page_size: int = 100) -> Tuple[bool, Any]:
         all_items: List[dict] = []
-        page = 1
+        strategies = []
+        for size in (page_size, 50, 25):
+            if size not in strategies and size > 0:
+                strategies.append(size)
 
-        while True:
-            ok, data = self.get_accounts(page=page, page_size=page_size)
-            if not ok:
-                if page == 1:
-                    return False, data
-                logger.warning(
-                    "Sub2API pagination failed on page %s; continue with %s fetched accounts",
-                    page,
+        last_error: Any = "unknown error"
+        for current_page_size in strategies:
+            all_items = []
+            page = 1
+            page_failed = False
+
+            while True:
+                ok = False
+                data: Any = None
+                attempt_error: Any = None
+
+                for attempt in range(1, 4):
+                    ok, data = self.get_accounts(page=page, page_size=current_page_size)
+                    if ok:
+                        break
+                    attempt_error = data
+                    logger.warning(
+                        "Sub2API page fetch failed (page=%s, page_size=%s, attempt=%s): %s",
+                        page,
+                        current_page_size,
+                        attempt,
+                        data,
+                    )
+                    time.sleep(min(attempt, 3))
+
+                if not ok:
+                    last_error = attempt_error
+                    if self._is_dns_resolution_error(attempt_error):
+                        logger.warning(
+                            "Sub2API full inventory aborted because DNS resolution failed on page %s",
+                            page,
+                        )
+                        return False, attempt_error
+                    if page == 1:
+                        page_failed = True
+                    else:
+                        logger.warning(
+                            "Sub2API pagination failed on page %s; continue with %s fetched accounts",
+                            page,
+                            len(all_items),
+                        )
+                    break
+
+                inner = data.get("data", {}) if isinstance(data, dict) else {}
+                items = inner.get("items", [])
+                if not items:
+                    break
+
+                all_items.extend(items)
+
+                total = inner.get("total", 0)
+                if len(all_items) >= total:
+                    logger.info(
+                        "Fetched %s Sub2API accounts across paginated results (page_size=%s)",
+                        len(all_items),
+                        current_page_size,
+                    )
+                    return True, all_items
+
+                page += 1
+
+            if not page_failed:
+                logger.info(
+                    "Fetched %s Sub2API accounts across paginated results (partial, page_size=%s)",
                     len(all_items),
+                    current_page_size,
                 )
-                break
+                return True, all_items
 
-            inner = data.get("data", {}) if isinstance(data, dict) else {}
+            next_sizes = [size for size in strategies if size < current_page_size]
+            if next_sizes:
+                logger.warning(
+                    "Retrying Sub2API full inventory with smaller page_size=%s after failure on first page",
+                    next_sizes[0],
+                )
+
+        return False, last_error
+
+    def get_total_count(self) -> Tuple[bool, Any]:
+        ok, data = self.get_accounts(page=1, page_size=1)
+        if not ok:
+            return False, data
+
+        inner = data.get("data", {}) if isinstance(data, dict) else {}
+        total = inner.get("total")
+        if total is None:
             items = inner.get("items", [])
-            if not items:
-                break
+            total = len(items) if isinstance(items, list) else 0
+        try:
+            return True, int(total)
+        except (TypeError, ValueError):
+            return False, f"Sub2API total 字段异常: {total}"
 
-            all_items.extend(items)
-
-            total = inner.get("total", 0)
-            if len(all_items) >= total:
-                break
-
-            page += 1
-
-        logger.info("Fetched %s Sub2API accounts across paginated results", len(all_items))
-        return True, all_items
+    def get_account_usage(self, account_id: str) -> Tuple[bool, Any]:
+        url = f"{self.api_url}/api/v1/admin/accounts/{account_id}/usage"
+        params = {"timezone": "Asia/Shanghai"}
+        try:
+            response = cffi_requests.get(
+                url,
+                headers=self.headers,
+                params=params,
+                **self.request_kwargs
+            )
+            return self._handle_response(response)
+        except Exception as exc:
+            logger.error("Get Sub2API account usage %s failed: %s", account_id, exc)
+            return False, str(exc)
 
     def add_account(self, token_data: Dict[str, Any]) -> Tuple[bool, str]:
         settings = self._get_push_settings()
-        refresh_token = token_data.get("refresh_token", "")
+        working_token_data = dict(token_data)
+        refresh_token = working_token_data.get("refresh_token", "")
+        proxy_obj = working_token_data.get("sub2api_proxy")
+        if proxy_obj is None:
+            proxy_obj = parse_sub2api_proxy(cfg.get_next_sub2api_proxy_url())
+            if proxy_obj:
+                working_token_data["sub2api_proxy"] = proxy_obj
 
-        if not refresh_token:
-            return self._import_account(token_data, settings)
+        account_name = working_token_data.get("email", "unknown")[:64]
+        group_ids = settings.get("group_ids") or []
+
+
+        if not refresh_token or proxy_obj:
+            ok, msg = self._import_account(working_token_data, settings)
+            if ok:
+                self._force_bind_groups(account_name, group_ids)
+            return ok, msg
 
         url = f"{self.api_url}/api/v1/admin/accounts"
         payload = {
-            "name": token_data.get("email", "unknown")[:64],
+            "name": account_name,
             "platform": "openai",
             "type": "oauth",
-            "credentials": {"refresh_token": refresh_token},
+            "credentials": {
+                "refresh_token": refresh_token,
+                "model_mapping": {
+                    "gpt-5.4-mini": "gpt-5.4-mini",
+                    "gpt-5.5": "gpt-5.5",
+                }
+            },
             "concurrency": settings["concurrency"],
             "priority": settings["priority"],
             "rate_multiplier": settings["rate_multiplier"],
             "extra": self._build_account_extra(settings),
         }
+        if proxy_obj and "proxy_key" in proxy_obj:
+            payload["proxy_key"] = proxy_obj["proxy_key"]
+
         if settings["group_ids"]:
             payload["group_ids"] = settings["group_ids"]
 
@@ -248,16 +399,37 @@ class Sub2APIClient:
             )
             ok, result = self._handle_response(response, success_codes=(200, 201))
             if not ok:
-                logger.warning("Sub2API direct create failed, falling back to import endpoint: %s", result)
-                return self._import_account(token_data, settings)
-
+                import_ok, import_msg = self._import_account(working_token_data, settings)
+                if import_ok:
+                    self._force_bind_groups(account_name, group_ids)
+                return import_ok, import_msg
             account_id = result.get("data", {}).get("id") if isinstance(result, dict) else None
             if account_id:
                 self._refresh_created_account(str(account_id))
             return True, "Sub2API account created successfully"
         except Exception as exc:
-            logger.warning("Sub2API direct create raised an exception, falling back to import: %s", exc)
-            return self._import_account(token_data, settings)
+            import_ok, import_msg = self._import_account(working_token_data, settings)
+            if import_ok:
+                self._force_bind_groups(account_name, group_ids)
+            return import_ok, import_msg
+
+    def _force_bind_groups(self, account_name: str, group_ids: List[int]) -> None:
+        try:
+            fetch_ok, accounts_resp = self.get_accounts(page=1, page_size=50)
+            if not fetch_ok: return
+
+            items = accounts_resp.get("data", {}).get("items", []) if isinstance(accounts_resp, dict) else []
+            for item in items:
+                if item.get("name") == account_name:
+                    target_id = str(item.get("id"))
+
+                    if group_ids:
+                        self.update_account(target_id, {"group_ids": group_ids})
+                        logger.info(f"账号 {account_name} 分组强制绑定成功: {group_ids}")
+                    self._refresh_created_account(target_id)
+                    break
+        except Exception as exc:
+            logger.error(f"推送后执行强制补丁(绑组+刷新)异常: {exc}")
 
     def update_account(self, account_id: str, update_data: Dict[str, Any]) -> Tuple[bool, Any]:
         url = f"{self.api_url}/api/v1/admin/accounts/{account_id}"
