@@ -23,6 +23,9 @@ from global_state import VALID_TOKENS, CLUSTER_NODES, NODE_COMMANDS, cluster_loc
 from utils import core_engine, db_manager
 from utils.email_providers import mail_service
 from utils.config import reload_all_configs
+from utils.embedded_mihomo import get_embedded_mihomo_manager
+from utils.proxy_manager import get_effective_default_proxy, is_embedded_mode
+import utils.integrations.clash_manager as clash_manager
 from utils.integrations.tg_notifier import send_tg_msg_async
 from utils.memory_predictor import build_memory_report
 from utils.system_maintenance import get_cleanup_status
@@ -105,6 +108,17 @@ def _run_local_command(command: list[str], timeout: int = 60, cwd: Optional[str]
         "output": output,
         "error": "" if completed.returncode == 0 else output or f"命令执行失败 (exit {completed.returncode})",
     }
+
+
+def ensure_embedded_proxy_ready():
+    """Start the embedded Mihomo proxy before jobs when that backend is active."""
+    if not is_embedded_mode():
+        return None
+    manager = get_embedded_mihomo_manager()
+    if manager.is_running():
+        return manager
+    manager.start()
+    return manager
 
 
 def _tail_lines(text: str, limit: int = 15) -> list[str]:
@@ -602,11 +616,19 @@ async def start_task(token: str = Depends(verify_token)):
     except Exception as e:
         print(f"[{core_engine.ts()}] [警告] 启动重载提示: {e}")
 
-    default_proxy = getattr(core_engine.cfg, 'DEFAULT_PROXY', None)
+    try:
+        ensure_embedded_proxy_ready()
+    except Exception as e:
+        return {"status": "error", "message": f"内置 Mihomo 启动失败: {e}"}
+
+    default_proxy = get_effective_default_proxy()
     args = DummyArgs(proxy=default_proxy if default_proxy else None)
     core_engine.run_stats.update({"success": 0, "failed": 0, "retries": 0, "pwd_blocked": 0, "phone_verify": 0, "start_time": time.time(),"target": 0})
     mail_service.start_mail_domain_runtime_tracking()
-    if getattr(core_engine.cfg, 'ENABLE_CPA_MODE', False):
+    if getattr(core_engine.cfg, 'ENABLE_NEURALWATT_MODE', False):
+        engine.start_neuralwatt(args)
+        return {"status": "success", "message": "启动成功：已自动识别并开启 [Neuralwatt 仓管模式]"}
+    elif getattr(core_engine.cfg, 'ENABLE_CPA_MODE', False):
         engine.start_cpa(args)
         return {"status": "success", "message": "启动成功：已自动识别并开启 [CPA 智能仓管模式]"}
     elif getattr(core_engine.cfg, 'ENABLE_SUB2API_MODE', False):
@@ -673,8 +695,9 @@ async def get_stats(token: str = Depends(verify_token)):
     if current_reg_mode == 'extension':
         current_mode = "插件托管 (古法)"
     else:
-        current_mode = "CPA 仓管" if getattr(core_engine.cfg, 'ENABLE_CPA_MODE', False) else (
-            "Sub2Api 仓管" if getattr(core_engine.cfg, 'ENABLE_SUB2API_MODE', False) else "常规量产")
+        current_mode = "Neuralwatt 仓管" if getattr(core_engine.cfg, 'ENABLE_NEURALWATT_MODE', False) else (
+            "CPA 仓管" if getattr(core_engine.cfg, 'ENABLE_CPA_MODE', False) else (
+                "Sub2Api 仓管" if getattr(core_engine.cfg, 'ENABLE_SUB2API_MODE', False) else "常规量产"))
 
     domain_summary = mail_service.get_mail_domain_runtime_summary()
     memory_report = build_memory_report(getattr(core_engine.cfg, '_c', {}))
@@ -733,7 +756,11 @@ async def run_system_cleanup(req: CleanupRunReq, token: str = Depends(verify_tok
 @router.post("/api/start_check")
 async def start_check_api(token: str = Depends(verify_token)):
     if engine.is_running(): return {"code": 400, "message": "系统正在运行中，请先停止主任务！"}
-    default_proxy = getattr(core_engine.cfg, 'DEFAULT_PROXY', None)
+    try:
+        ensure_embedded_proxy_ready()
+    except Exception as e:
+        return {"code": 400, "message": f"内置 Mihomo 启动失败: {e}"}
+    default_proxy = get_effective_default_proxy()
     engine.start_check(DummyArgs(proxy=default_proxy if default_proxy else None))
     return {"code": 200, "message": "独立测活指令已下发！"}
 

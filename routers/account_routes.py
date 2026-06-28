@@ -12,6 +12,7 @@ from utils import core_engine, db_manager
 import utils.config as cfg
 from utils.integrations.sub2api_client import Sub2APIClient, build_sub2api_export_bundle, get_sub2api_push_settings
 from utils.integrations.image2api_client import Image2APIClient
+from utils.integrations.codex2api_client import Codex2APIClient
 from utils.auth_core import email_jwt
 
 
@@ -122,6 +123,45 @@ def parse_sub2api_proxy(proxy_url: str):
     except:
         return None
 
+
+def normalize_cloud_time(raw_time: Any) -> str:
+    raw = str(raw_time or "").strip()
+    if not raw:
+        return "-"
+    try:
+        return raw.split(".")[0].replace("T", " ")
+    except Exception:
+        return raw
+
+
+def map_codex2api_status(item: dict) -> str:
+    if bool(item.get("locked")):
+        return "disabled"
+    raw_status = str(item.get("status") or "").strip().lower()
+    if raw_status in ("", "active", "ready", "ok"):
+        return "active"
+    return "dead"
+
+
+def build_codex2api_details(item: dict) -> dict:
+    def as_percent(value: Any) -> float:
+        try:
+            return round(float(value or 0), 1)
+        except Exception:
+            return 0.0
+
+    return {
+        "plan_type": item.get("plan_type", "未知"),
+        "health_tier": item.get("health_tier", ""),
+        "proxy_url": item.get("proxy_url", ""),
+        "at_only": bool(item.get("at_only")),
+        "locked": bool(item.get("locked")),
+        "codex_5h_used_percent": as_percent(item.get("usage_percent_5h")),
+        "codex_7d_used_percent": as_percent(item.get("usage_percent_7d")),
+        "codex_5h_reset_at": item.get("reset_5h_at", ""),
+        "codex_7d_reset_at": item.get("reset_7d_at", ""),
+    }
+
 @router.get("/api/accounts")
 async def get_accounts(page: int = Query(1), page_size: int = Query(50), hide_reg: str = Query("0"), search: Optional[str] = Query(None), status_filter: str = Query("all"), token: str = Depends(verify_token)):
     result = db_manager.get_accounts_page(page, page_size, hide_reg=hide_reg, search=search, status_filter=status_filter)
@@ -194,6 +234,18 @@ def account_action(data: dict, token: str = Depends(verify_token)):
                 return {"status": "error", "message": "🚫 推送失败：未开启 Image2API 模式！"}
             img_client = Image2APIClient()
             print(f"[{cfg.ts()}] [系统] 🖼️ 收到指令，准备将 {len(target_emails)} 个账号推送至 Image2API...")
+        elif action == "push_codex2api":
+            if not getattr(core_engine.cfg, 'ENABLE_CODEX2API_MODE', False):
+                return {"status": "error", "message": "🚫 推送失败：未开启 Codex2API 模式！"}
+            codex_client = Codex2APIClient(
+                api_url=getattr(core_engine.cfg, 'CODEX2API_URL', ''),
+                admin_key=getattr(core_engine.cfg, 'CODEX2API_ADMIN_KEY', '')
+            )
+            print(f"[{cfg.ts()}] [系统] 🧩 收到指令，准备将 {len(target_emails)} 个账号推送至 Codex2API...")
+        elif action == "push_neuralwatt":
+            print(f"[{cfg.ts()}] [系统] ⚡ 收到指令，准备将 {len(target_emails)} 个 Neuralwatt 账号标记推送...")
+        else:
+            return {"status": "error", "message": f"不支持的操作: {action}"}
 
         total_accounts = len(target_emails)
         for idx, email in enumerate(target_emails):
@@ -228,6 +280,24 @@ def account_action(data: dict, token: str = Depends(verify_token)):
                         last_error = resp
                     else:
                         print(f"[{cfg.ts()}] [成功] ✅ 账号 {mask_email(email)} 成功推送至 Image2API！")
+                elif action == "push_codex2api":
+                    push_payload = dict(token_data or {})
+                    push_payload.setdefault("email", email)
+                    push_payload["source"] = config.get("codex2api_mode", {}).get("push_source", "register-oss")
+                    success, resp = codex_client.push_account(push_payload)
+                    if not success:
+                        last_error = resp
+                        print(f"[{cfg.ts()}] [错误] ❌ 推送 Codex2API 失败 ({mask_email(email)}): {resp}")
+                    else:
+                        print(f"[{cfg.ts()}] [成功] ✅ 账号 {mask_email(email)} 成功推送至 Codex2API！")
+                elif action == "push_neuralwatt":
+                    api_key_val = str((token_data or {}).get("api_key", "") or "").strip()
+                    if not api_key_val:
+                        last_error = "该账号无 Neuralwatt API Key"
+                        print(f"[{cfg.ts()}] [警告] ❌ 账号 {mask_email(email)} 无 Neuralwatt API Key，跳过。")
+                    else:
+                        success = True
+                        print(f"[{cfg.ts()}] [成功] ✅ 账号 {mask_email(email)} Neuralwatt API Key 已标记推送！")
                 if success:
                     success_emails.append(email)
                 else:
@@ -243,10 +313,19 @@ def account_action(data: dict, token: str = Depends(verify_token)):
             platform_map = {
                 "push": "CPA",
                 "push_sub2api": "SUB2API",
-                "push_image2api": "IMAGE2API"
+                "push_image2api": "IMAGE2API",
+                "push_codex2api": "CODEX2API",
+                "push_neuralwatt": "NEURALWATT",
             }
             platform_marker = platform_map.get(action, "UNKNOWN")
-            db_manager.update_account_push_info(success_emails, platform_marker)
+            if action == "push_codex2api":
+                for pushed_email in success_emails:
+                    db_manager.mark_account_pushed(pushed_email, "codex2api")
+            elif action == "push_neuralwatt":
+                for pushed_email in success_emails:
+                    db_manager.mark_account_pushed(pushed_email, "neuralwatt")
+            else:
+                db_manager.update_account_push_info(success_emails, platform_marker)
 
         print(f"[{cfg.ts()}] [系统] 🏁 推送任务执行完毕。成功: {len(success_emails)} 个，失败: {fail_count} 个。")
 
@@ -300,6 +379,7 @@ def _background_sync_cloud_data(combined_data):
         cpa_emails = [x["credential"] for x in combined_data if x["account_type"] == "cpa"]
         sub_emails = [x["credential"] for x in combined_data if x["account_type"] == "sub2api"]
         img2_emails = [x["credential"] for x in combined_data if x["account_type"] == "image2api"]
+        codex_emails = [x["credential"] for x in combined_data if x["account_type"] == "codex2api"]
 
         if cpa_emails:
             db_manager.update_account_push_info(cpa_emails, "CPA", mode="sync")
@@ -307,6 +387,8 @@ def _background_sync_cloud_data(combined_data):
             db_manager.update_account_push_info(sub_emails, "SUB2API", mode="sync")
         if img2_emails:
             db_manager.update_account_push_info(img2_emails, "IMAGE2API", mode="sync")
+        if codex_emails:
+            db_manager.update_account_push_info(codex_emails, "CODEX2API", mode="sync")
 
         active_emails = [x["credential"] for x in combined_data if x["status"] == "active"]
         inactive_emails = [x["credential"] for x in combined_data if x["status"] in ["disabled", "dead"]]
@@ -325,7 +407,7 @@ def _background_sync_cloud_data(combined_data):
 
 
 @router.get("/api/cloud/accounts")
-def get_cloud_accounts(background_tasks: BackgroundTasks, types: str = "sub2api,cpa", status_filter: str = Query("all"), page: int = Query(1),
+def get_cloud_accounts(background_tasks: BackgroundTasks, types: str = "sub2api,cpa,codex2api", status_filter: str = Query("all"), page: int = Query(1),
                        page_size: int = Query(50), search: Optional[str] = Query(None),
                        token: str = Depends(verify_token)):
     type_list = types.split(",")
@@ -409,11 +491,28 @@ def get_cloud_accounts(background_tasks: BackgroundTasks, types: str = "sub2api,
                     })
         except Exception as e:
             print(f"[{cfg.ts()}] [IMAGE2API] 拉取 Image2API 数据异常，如果未填写相关数据可忽略该提示，将跳过: {e}")
+    if "codex2api" in type_list and getattr(cfg, 'CODEX2API_URL', None) and getattr(cfg, 'CODEX2API_ADMIN_KEY', None):
+        try:
+            client = Codex2APIClient(api_url=cfg.CODEX2API_URL, admin_key=cfg.CODEX2API_ADMIN_KEY)
+            success, raw_codex_data = client.get_all_accounts()
+            if success:
+                for item in raw_codex_data:
+                    combined_data.append({
+                        "id": str(item.get("id", "")),
+                        "account_type": "codex2api",
+                        "credential": item.get("email") or item.get("name") or f"account-{item.get('id', '')}",
+                        "status": map_codex2api_status(item),
+                        "last_check": normalize_cloud_time(item.get("updated_at") or item.get("last_used_at") or "-"),
+                        "details": build_codex2api_details(item),
+                    })
+        except Exception as e:
+            print(f"[{cfg.ts()}] [CODEX2API] 拉取 Codex2API 数据异常，如果未填写相关数据可忽略该提示，将跳过: {e}")
 
     try:
         cpa_list = [x for x in combined_data if x["account_type"] == "cpa"]
         sub2api_list = [x for x in combined_data if x["account_type"] == "sub2api"]
         image2api_list = [x for x in combined_data if x["account_type"] == "image2api"]
+        codex2api_list = [x for x in combined_data if x["account_type"] == "codex2api"]
 
         cloud_stats = {
             "total": len(combined_data),
@@ -426,7 +525,10 @@ def get_cloud_accounts(background_tasks: BackgroundTasks, types: str = "sub2api,
             "sub2api_disabled": sum(1 for x in sub2api_list if x["status"] != "active"),
             "image2api": len(image2api_list),
             "image2api_active": sum(1 for x in image2api_list if x["status"] == "active"),
-            "image2api_disabled": sum(1 for x in image2api_list if x["status"] != "active")
+            "image2api_disabled": sum(1 for x in image2api_list if x["status"] != "active"),
+            "codex2api": len(codex2api_list),
+            "codex2api_active": sum(1 for x in codex2api_list if x["status"] == "active"),
+            "codex2api_disabled": sum(1 for x in codex2api_list if x["status"] != "active")
         }
         if combined_data:
             background_tasks.add_task(_background_sync_cloud_data, combined_data)
@@ -487,6 +589,7 @@ def process_cloud_action(req: CloudActionReq, token: str = Depends(verify_token)
 
     success_count, fail_count, updated_details_map = 0, 0, {}
     sub2api_client = Sub2APIClient(api_url=cfg.SUB2API_URL, api_key=cfg.SUB2API_KEY) if getattr(cfg, 'SUB2API_URL',None) and getattr(cfg,'SUB2API_KEY',None) else None
+    codex2api_client = Codex2APIClient(api_url=cfg.CODEX2API_URL, admin_key=cfg.CODEX2API_ADMIN_KEY) if getattr(cfg, 'CODEX2API_URL', None) and getattr(cfg, 'CODEX2API_ADMIN_KEY', None) else None
 
     cpa_files_map = {}
     if any(a.type == "cpa" for a in req.accounts) and req.action == "check" and getattr(cfg, 'CPA_API_URL', None):
@@ -509,6 +612,17 @@ def process_cloud_action(req: CloudActionReq, token: str = Depends(verify_token)
                     is_success = sub2api_client.set_account_status(acc.id, disabled=(req.action == "disable"))
                 elif req.action == "delete":
                     is_success, _ = sub2api_client.delete_account(acc.id)
+
+            elif acc.type == "codex2api" and codex2api_client:
+                if req.action == "check":
+                    result, _ = codex2api_client.test_account(acc.id)
+                    is_success = (result == "ok")
+                    if not is_success:
+                        codex2api_client.set_account_status(acc.id, disabled=True)
+                elif req.action in ["enable", "disable"]:
+                    is_success = codex2api_client.set_account_status(acc.id, disabled=(req.action == "disable"))
+                elif req.action == "delete":
+                    is_success, _ = codex2api_client.delete_account(acc.id)
 
             elif acc.type == "cpa" and getattr(cfg, 'CPA_API_URL', None):
                 if req.action == "check":
@@ -553,6 +667,8 @@ def process_cloud_action(req: CloudActionReq, token: str = Depends(verify_token)
         getattr(cfg, '_c', {}).get('sub2api_mode', {}).get('threads', 10)))
     if any(a.type == "image2api" for a in req.accounts):
         target_threads = max(target_threads, 10)
+    if any(a.type == "codex2api" for a in req.accounts):
+        target_threads = max(target_threads, int(getattr(cfg, '_c', {}).get('codex2api_mode', {}).get('threads', 10)))
 
     with ThreadPoolExecutor(max_workers=max(1, min(target_threads, 50))) as executor:
         futures = []
