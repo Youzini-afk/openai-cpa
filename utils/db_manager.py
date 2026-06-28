@@ -88,7 +88,7 @@ def init_db():
         ''')
         execute_sql(c, '''
             CREATE TABLE IF NOT EXISTS system_kv (
-                `key` TEXT PRIMARY KEY, 
+                `key` TEXT PRIMARY KEY,
                 value TEXT
             )
         ''')
@@ -730,7 +730,7 @@ def get_and_lock_unused_local_mailbox() -> dict:
 
             filter_sql = """
                             SELECT * FROM local_mailboxes m
-                            WHERE status = 0 
+                            WHERE status = 0
                             AND NOT EXISTS (
                                 SELECT 1 FROM accounts a WHERE TRIM(LOWER(a.email)) = TRIM(LOWER(m.email))
                             )
@@ -928,8 +928,8 @@ def update_account_push_info(emails: list, platform: str, mode: str = "overwrite
 
             if update_params:
                 base_sql = """
-                    UPDATE accounts 
-                    SET push_platform = ?, push_time = COALESCE(push_time, ?) 
+                    UPDATE accounts
+                    SET push_platform = ?, push_time = COALESCE(push_time, ?)
                     WHERE email = ?
                 """
                 if DB_TYPE == "mysql":
@@ -1028,7 +1028,7 @@ def get_inventory_stats() -> dict:
         with get_db_conn() as conn:
             c = get_cursor(conn)
             sql = """
-                            SELECT 
+                            SELECT
                                 COUNT(1) as total,
                                 SUM(CASE WHEN (push_platform IS NOT NULL AND push_platform != '') AND is_active = 1 THEN 1 ELSE 0 END) as active_count,
                                 SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) as disabled_count,
