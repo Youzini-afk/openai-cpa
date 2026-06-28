@@ -933,6 +933,8 @@ async def save_config(new_config: dict, token: str = Depends(verify_token)):
         grouping_error = _normalize_mail_domain_grouping_payload(new_config)
         if grouping_error:
             return {"status": "error", "message": grouping_error}
+        proxy_backend_changed = current_config.get("proxy_backend") != new_config.get("proxy_backend")
+        embedded_mihomo_changed = current_config.get("embedded_mihomo") != new_config.get("embedded_mihomo")
         reload_all_configs(new_config_dict=new_config)
         mail_service.sync_mail_domain_runtime_state_with_config()
         extra_messages = []
@@ -949,6 +951,22 @@ async def save_config(new_config: dict, token: str = Depends(verify_token)):
             ok, msg = clash_manager.sync_single_core_runtime_from_saved_config()
             if msg:
                 extra_messages.append(msg if ok else f"Clash 运行配置同步失败: {msg}")
+
+        if proxy_backend_changed or embedded_mihomo_changed:
+            try:
+                manager = get_embedded_mihomo_manager()
+                if is_embedded_mode():
+                    if manager.is_running():
+                        manager.restart()
+                        extra_messages.append("内置 Mihomo 已按新配置重启。")
+                    elif bool(getattr(core_engine.cfg, "EMBEDDED_MIHOMO_ENABLE", False)):
+                        manager.start()
+                        extra_messages.append("内置 Mihomo 已按新配置启动。")
+                elif manager.is_running():
+                    manager.stop()
+                    extra_messages.append("内置 Mihomo 已停止。")
+            except Exception as exc:
+                extra_messages.append(f"内置 Mihomo 运行配置同步失败: {exc}")
 
         final_message = "✅ 配置已成功保存并同步至云端！"
         if extra_messages:

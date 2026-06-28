@@ -15,6 +15,7 @@ from utils import core_engine
 import utils.config as cfg
 import utils.integrations.clash_manager as clash_manager
 from utils.email_providers.gmail_oauth_handler import GmailOAuthHandler
+from utils.proxy_manager import get_effective_default_proxy
 
 router = APIRouter()
 
@@ -47,7 +48,7 @@ async def add_wildcard_dns(req: CFSyncExistingReq, token: str = Depends(verify_t
         main_list = [d.strip() for d in req.sub_domains.split(",") if d.strip()]
         if not main_list: return {"status": "error", "message": "❌ 没有找到有效的主域名"}
 
-        proxy_url = getattr(core_engine.cfg, 'DEFAULT_PROXY', None)
+        proxy_url = get_effective_default_proxy()
         headers = {"X-Auth-Email": req.api_email, "X-Auth-Key": req.api_key, "Content-Type": "application/json"}
         client_kwargs = {"timeout": 30.0}
         if proxy_url: client_kwargs["proxy"] = proxy_url
@@ -207,7 +208,7 @@ async def exchange_gmail_code(req: GmailExchangeReq, token: str = Depends(verify
         success, result_data = GmailOAuthHandler.save_token_from_code(
             json.loads(creds_str), req.code, None,
             code_verifier=stored_verifier,
-            proxy=getattr(core_engine.cfg, 'DEFAULT_PROXY', None)
+            proxy=get_effective_default_proxy() or None
         )
 
         if success:

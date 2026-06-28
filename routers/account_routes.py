@@ -13,6 +13,7 @@ import utils.config as cfg
 from utils.integrations.sub2api_client import Sub2APIClient, build_sub2api_export_bundle, get_sub2api_push_settings
 from utils.integrations.image2api_client import Image2APIClient
 from utils.integrations.codex2api_client import Codex2APIClient
+from utils.proxy_manager import get_effective_default_proxy
 from utils.auth_core import email_jwt
 
 
@@ -768,7 +769,7 @@ async def exchange_outlook_oauth_code(req: OutlookExchangeReq, token: str = Depe
             "redirect_uri": "http://localhost"
         }
 
-        proxy_url = getattr(cfg, 'DEFAULT_PROXY', None)
+        proxy_url = get_effective_default_proxy()
         proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
         response = cffi_requests.post(token_url, data=payload, proxies=proxies, timeout=15, impersonate="chrome110")
