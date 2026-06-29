@@ -614,7 +614,8 @@ def reload_all_configs(new_config_dict=None):
                 group_ids.append(int(text))
         return group_ids
 
-    WEB_PASSWORD = str(_c.get("web_password", "admin")).strip()
+    env_web_password = str(os.getenv("WEB_PASSWORD") or os.getenv("WENFXL_WEB_PASSWORD") or "").strip()
+    WEB_PASSWORD = env_web_password or str(_c.get("web_password", "admin")).strip() or "admin"
     RETAIN_REG_ONLY = safe_bool(_c.get("retain_reg_only", False))
 
     EMAIL_API_MODE = _c.get("email_api_mode", "cloudflare_temp_email")

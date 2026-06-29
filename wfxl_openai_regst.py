@@ -221,6 +221,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.get("/healthz", include_in_schema=False)
+async def healthz():
+    return {"status": "ok"}
+
 db_manager.init_db()
 
 app.include_router(api_routes.router)

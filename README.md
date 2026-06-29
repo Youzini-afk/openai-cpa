@@ -49,6 +49,15 @@ Install Python Dependencies Install the required base libraries using the requir
 pip install -r requirements.txt
 ```
 
+## Zeabur Deployment
+
+- Zeabur can build this repository directly from the root `Dockerfile`.
+- The web service should run on `PORT=8000`; keep `WEB_PORT_SCAN_LIMIT=1` in Zeabur so the app does not scan away from the platform-provided port.
+- Health checks can use the unauthenticated `GET /healthz` endpoint.
+- Mount `/app/data` as a persistent volume so `config.yaml`, SQLite data, logs, and exports survive redeploys.
+- Set `WEB_PASSWORD` in Zeabur environment variables to control the initial Web Console password without editing `/app/data/config.yaml`.
+- The default Docker image stays minimal; add browser dependencies only if you enable features that require them.
+
 ## ☕ Buy me a coffee
 
 If you find this tool helpful or if it has saved you time, consider buying me a coffee! Your support is a great motivation for continuous maintenance and updates.
