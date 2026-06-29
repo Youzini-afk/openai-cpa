@@ -2,6 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=60 \
+    PIP_RETRIES=3 \
+    PIP_NO_COMPILE=1
+
 # Pinned Mihomo release. Bump deliberately after verifying asset names/checksums.
 ARG MIHOMO_VERSION=v1.18.10
 ARG TARGETARCH
@@ -25,8 +30,8 @@ RUN set -eux; \
     mihomo -v
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --no-cache-dir --upgrade --prefer-binary --only-binary=:all: pip setuptools wheel && \
+    python -m pip install --no-cache-dir --prefer-binary --only-binary=:all: -r requirements.txt
 
 COPY . .
 
