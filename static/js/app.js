@@ -1338,13 +1338,30 @@ createApp({
         async fetchConfig() {
             this.isLoadingConfig = true;
             this.configLoadError = '';
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
             try {
-                const res = await this.authFetch('/api/config');
-                this.config = await res.json();
-                if (!this.config.tg_bot) {
+                const res = await this.authFetch('/api/config', { signal: controller.signal });
+                let nextConfig = null;
+                try {
+                    nextConfig = await res.json();
+                } catch (parseError) {
+                    throw new Error(`配置接口返回非 JSON 响应: ${parseError?.message || parseError}`);
+                }
+                if (!res.ok) {
+                    throw new Error(nextConfig?.message || `配置接口请求失败 HTTP ${res.status}`);
+                }
+                if (!nextConfig || typeof nextConfig !== 'object' || Array.isArray(nextConfig)) {
+                    throw new Error('配置接口返回格式无效');
+                }
+                if (nextConfig.status === 'error') {
+                    throw new Error(nextConfig.message || '后端配置读取失败');
+                }
+                this.config = nextConfig;
+                if (!this.config.tg_bot || typeof this.config.tg_bot !== 'object' || Array.isArray(this.config.tg_bot)) {
                     this.config.tg_bot = { enable: false, token: '', chat_id: '' };
                 }
-                if (!this.config.local_microsoft) {
+                if (!this.config.local_microsoft || typeof this.config.local_microsoft !== 'object' || Array.isArray(this.config.local_microsoft)) {
                     this.config.local_microsoft = {
                         enable_fission: false,
                         pool_fission: false,
@@ -1355,6 +1372,21 @@ createApp({
                         suffix_len_min: 8,
                         suffix_len_max: 8
                     };
+                }
+                if (!this.config.sub2api_mode || typeof this.config.sub2api_mode !== 'object' || Array.isArray(this.config.sub2api_mode)) {
+                    this.config.sub2api_mode = {};
+                }
+                if (!this.config.image2api_mode || typeof this.config.image2api_mode !== 'object' || Array.isArray(this.config.image2api_mode)) {
+                    this.config.image2api_mode = {};
+                }
+                if (!this.config.database || typeof this.config.database !== 'object' || Array.isArray(this.config.database)) {
+                    this.config.database = {};
+                }
+                if (!this.config.raw_proxy_pool || typeof this.config.raw_proxy_pool !== 'object' || Array.isArray(this.config.raw_proxy_pool)) {
+                    this.config.raw_proxy_pool = { enable: false, proxy_list: [] };
+                }
+                if (!this.config.clash_proxy_pool || typeof this.config.clash_proxy_pool !== 'object' || Array.isArray(this.config.clash_proxy_pool)) {
+                    this.config.clash_proxy_pool = { enable: false, pool_mode: false, cluster_count: 5, sub_url: '', blacklist: [] };
                 }
 
 
@@ -1604,8 +1636,14 @@ createApp({
                 if (this.config.mail_domain_fail_threshold === undefined) this.config.mail_domain_fail_threshold = 3;
                 if (this.config.mail_domain_fail_cooldown_sec === undefined) this.config.mail_domain_fail_cooldown_sec = 600;
             } catch (e) {
-                this.configLoadError = e?.message === 'Unauthorized' ? '登录已失效，请重新登录' : '配置加载失败，请稍后重试';
+                console.error('fetchConfig failed:', e);
+                this.config = null;
+                const message = e?.name === 'AbortError'
+                    ? '配置加载超时（15秒），请检查后端 /api/config 是否可用。'
+                    : (e?.message === 'Unauthorized' ? '登录已失效，请重新登录' : `配置加载失败：${e?.message || '未知错误'}`);
+                this.configLoadError = message;
             } finally {
+                clearTimeout(timeoutId);
                 this.isLoadingConfig = false;
             }
         },

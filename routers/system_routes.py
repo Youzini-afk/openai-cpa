@@ -13,6 +13,7 @@ import zipfile
 import io
 import shutil
 import json
+import copy
 from pathlib import Path
 from typing import Optional, Any, List, Dict
 from fastapi import APIRouter, Depends, Query, Request, WebSocket, HTTPException
@@ -577,6 +578,96 @@ def _sanitize_local_microsoft_config(local_ms: Any) -> dict:
     data["suffix_len_max"] = max_len
     return data
 
+
+def _merge_frontend_config_defaults(config_data: dict) -> dict:
+    data = copy.deepcopy(config_data) if isinstance(config_data, dict) else {}
+    defaults = {
+        "sub2api_mode": {
+            "enable": False,
+            "api_url": "",
+            "api_key": "",
+            "test_model": "gpt-5.2",
+            "min_accounts_threshold": 70,
+            "batch_reg_count": 2,
+            "check_interval_minutes": 60,
+            "threads": 10,
+            "save_to_local": True,
+            "remove_on_limit_reached": True,
+            "remove_dead_accounts": True,
+            "enable_token_revive": False,
+            "default_proxy": "",
+            "account_concurrency": 10,
+            "account_load_factor": 10,
+            "account_priority": 1,
+            "account_rate_multiplier": 1.0,
+            "account_group_ids": "",
+            "enable_ws_mode": True,
+            "retain_reg_only": False,
+            "auto_re_oauth": False,
+        },
+        "image2api_mode": {
+            "enable": False,
+            "api_url": "",
+            "api_key": "",
+            "retain_reg_only": False,
+            "img_only_mode": False,
+        },
+        "database": {
+            "type": "sqlite",
+            "mysql": {"host": "127.0.0.1", "port": 3306, "user": "root", "password": "", "db_name": "wenfxl_manager"},
+        },
+        "tg_bot": {
+            "enable": False,
+            "token": "",
+            "chat_id": "",
+            "mask_email": False,
+            "mask_password": False,
+            "template_success": "🎉 <b>注册成功</b>\n⏰ 时间: <code>{time}</code>\n📧 账号: <code>{email}</code>\n🔑 密码: <code>{password}</code>",
+            "template_stop": "🛑 <b>系统已收到停止指令</b>",
+        },
+        "local_microsoft": {},
+        "raw_proxy_pool": {"enable": False, "proxy_list": []},
+        "clash_proxy_pool": {
+            "enable": False,
+            "pool_mode": False,
+            "api_url": "http://127.0.0.1:9097",
+            "fastest_mode": False,
+            "cluster_count": 5,
+            "sub_url": "",
+            "group_name": "节点选择",
+            "secret": "set-your-secret",
+            "test_proxy_url": "",
+            "blacklist": [],
+        },
+        "embedded_mihomo": getattr(cfg, "EMBEDDED_MIHOMO_DEFAULTS", {}).copy(),
+    }
+
+    def merge_nested(target: dict, default: dict) -> dict:
+        if not isinstance(target, dict):
+            target = {}
+        for key, value in default.items():
+            if isinstance(value, dict):
+                target[key] = merge_nested(target.get(key), value)
+            elif key not in target:
+                target[key] = copy.deepcopy(value)
+        return target
+
+    for key, value in defaults.items():
+        if isinstance(value, dict):
+            data[key] = merge_nested(data.get(key), value)
+        elif key not in data:
+            data[key] = copy.deepcopy(value)
+    data["local_microsoft"] = _sanitize_local_microsoft_config(data.get("local_microsoft"))
+    if isinstance(data.get("sub2api_mode"), dict):
+        data["sub2api_mode"].pop("min_remaining_weekly_percent", None)
+    if not isinstance(data.get("warp_proxy_list"), list):
+        data["warp_proxy_list"] = []
+    if not isinstance(data.get("disabled_mail_domains"), list):
+        data["disabled_mail_domains"] = []
+    if not isinstance(data.get("mail_domain_failure_types"), list):
+        data["mail_domain_failure_types"] = ["discarded_email"]
+    return data
+
 @router.get("/")
 async def get_dashboard():
     version = "1.0.0"
@@ -864,13 +955,13 @@ async def git_update(req: GitSyncReq, token: str = Depends(verify_token)):
 
 @router.get("/api/config")
 async def get_config(token: str = Depends(verify_token)):
-    config_data = getattr(core_engine.cfg, '_c', {}).copy()
-
-    if isinstance(config_data.get("sub2api_mode"), dict):
-        config_data["sub2api_mode"].pop("min_remaining_weekly_percent", None)
-    config_data["web_password"] = getattr(core_engine.cfg, "WEB_PASSWORD", config_data.get("web_password", "admin"))
-    config_data["local_microsoft"] = _sanitize_local_microsoft_config(config_data.get("local_microsoft"))
-    return config_data
+    try:
+        config_data = _merge_frontend_config_defaults(getattr(core_engine.cfg, '_c', {}) or {})
+        config_data["web_password"] = getattr(core_engine.cfg, "WEB_PASSWORD", config_data.get("web_password", "admin"))
+        return config_data
+    except Exception as e:
+        print(f"[{core_engine.ts()}] [ERROR] /api/config 读取失败: {e}")
+        return {"status": "error", "message": f"配置读取失败: {str(e)}"}
 
 
 @router.get("/api/config/mail_domain_runtime_stats")
