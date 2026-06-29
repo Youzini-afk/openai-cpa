@@ -28,7 +28,7 @@ def run(
     worker_index: Optional[int] = None,
 ) -> tuple:
     processed_mails: set = set()
-    proxy = cfg.format_docker_url(proxy)
+    proxy = cfg.format_docker_url(proxy, preserve_loopback=cfg.proxy_requires_loopback_preserve(proxy))
     if proxy and proxy.startswith("socks5://"):
         proxy = proxy.replace("socks5://", "socks5h://")
     proxies = {"http": proxy, "https": proxy} if proxy else None
@@ -1360,7 +1360,7 @@ def run(
 
 def run_oauth_only(email: str, password: str, proxy: Optional[str], run_ctx: dict = None, access_token: str = "", device_id: str = "", user_agent: str = "") -> tuple:
     processed_mails: set = set()
-    proxy = cfg.format_docker_url(proxy)
+    proxy = cfg.format_docker_url(proxy, preserve_loopback=cfg.proxy_requires_loopback_preserve(proxy))
     if proxy and proxy.startswith("socks5://"):
         proxy = proxy.replace("socks5://", "socks5h://")
     proxies = {"http": proxy, "https": proxy} if proxy else None

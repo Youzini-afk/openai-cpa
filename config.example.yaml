@@ -144,6 +144,22 @@ gmail_oauth_mode:
 # openai注册时代理地址，例子：http://127.0.0.1:7897。如果是国外服务器此项可以不填
 default_proxy: ""
 
+# Zeabur 内置 Mihomo（可选）：订阅转换/节点选择由后端托管，默认不开启。
+embedded_mihomo:
+  enable: false
+  auto_start: true
+  use_as_default_proxy: false
+  subscription_url: ""
+  mixed_port: 7890
+  controller_port: 9090
+  controller_secret: ""
+  group_name: "OpenAI"
+  selected_group: ""
+  selected_proxy: ""
+  test_url: "https://api.openai.com/cdn-cgi/trace"
+  update_interval_minutes: 60
+  log_lines: 200
+
 # 是否开启注册多线程并发 (true/false)
 enable_multi_thread_reg: false    
 # 注册时的最大并发线程数 (建议根据你的代理质量调整，不要设置过高)

@@ -22,13 +22,34 @@ def ts() -> str:
     return datetime.now(tz_utc_8).strftime("%H:%M:%S")
 
 
-def format_docker_url(url: str) -> str:
+def format_docker_url(url: str, preserve_loopback: bool = False) -> str:
     if not url or not isinstance(url, str):
         return url
-    if os.path.exists("/.dockerenv"):
+    if os.path.exists("/.dockerenv") and not preserve_loopback:
         url = url.replace("127.0.0.1", "host.docker.internal")
         url = url.replace("localhost", "host.docker.internal")
     return url
+
+
+def is_embedded_mihomo_default_proxy(proxy: Optional[str] = None) -> bool:
+    settings = globals().get("EMBEDDED_MIHOMO", {}) or {}
+    if not (settings.get("enable") and settings.get("use_as_default_proxy")):
+        return False
+    try:
+        mixed_port = int(settings.get("mixed_port") or 0)
+    except (TypeError, ValueError):
+        return False
+
+    proxy_value = DEFAULT_PROXY if proxy is None else proxy
+    if not proxy_value or not isinstance(proxy_value, str):
+        return False
+    parsed = urllib.parse.urlparse(proxy_value.strip())
+    host = (parsed.hostname or "").lower()
+    return host in {"127.0.0.1", "localhost"} and (parsed.port or 0) == mixed_port
+
+
+def proxy_requires_loopback_preserve(proxy: Optional[str]) -> bool:
+    return is_embedded_mihomo_default_proxy(proxy)
 
 
 def normalize_raw_proxy_entry(entry: str) -> str:
@@ -225,6 +246,22 @@ CM_WEBHOOK_SECRET: str = ""
 MC_API_BASE: str = ""
 MC_KEY: str = ""
 DEFAULT_PROXY: str = ""
+EMBEDDED_MIHOMO_DEFAULTS: dict = {
+    "enable": False,
+    "auto_start": True,
+    "use_as_default_proxy": False,
+    "subscription_url": "",
+    "mixed_port": 7890,
+    "controller_port": 9090,
+    "controller_secret": "",
+    "group_name": "OpenAI",
+    "selected_group": "",
+    "selected_proxy": "",
+    "test_url": "https://api.openai.com/cdn-cgi/trace",
+    "update_interval_minutes": 60,
+    "log_lines": 200,
+}
+EMBEDDED_MIHOMO: dict = dict(EMBEDDED_MIHOMO_DEFAULTS)
 ENABLE_MULTI_THREAD_REG: bool = False
 REG_THREADS: int = 3
 MAX_OTP_RETRIES: int = 5
@@ -440,7 +477,7 @@ def reload_all_configs(new_config_dict=None):
     global FREEMAIL_API_URL, FREEMAIL_API_TOKEN, FREEMAIL_LOCAL_WEBHOOK, FREEMAIL_WEBHOOK_SECRET
     global CM_API_URL, CM_ADMIN_EMAIL, CM_ADMIN_PASS, CM_LOCAL_WEBHOOK, CM_WEBHOOK_SECRET
     global MC_API_BASE, MC_KEY
-    global DEFAULT_PROXY
+    global DEFAULT_PROXY, EMBEDDED_MIHOMO
     global SUB_DOMAIN_LEVEL, RANDOM_SUB_DOMAIN_LEVEL
     global ENABLE_MULTI_THREAD_REG, REG_THREADS, MAX_OTP_RETRIES, OTP_POLL_MAX_ATTEMPTS
     global USE_PROXY_FOR_EMAIL, ENABLE_EMAIL_MASKING
@@ -614,6 +651,12 @@ def reload_all_configs(new_config_dict=None):
                 group_ids.append(int(text))
         return group_ids
 
+    def safe_port(value, default):
+        parsed = safe_int(value, default)
+        if parsed < 1024 or parsed > 65535 or parsed == 8000:
+            return default
+        return parsed
+
     env_web_password = str(os.getenv("WEB_PASSWORD") or os.getenv("WENFXL_WEB_PASSWORD") or "").strip()
     WEB_PASSWORD = env_web_password or str(_c.get("web_password", "admin")).strip() or "admin"
     RETAIN_REG_ONLY = safe_bool(_c.get("retain_reg_only", False))
@@ -710,6 +753,31 @@ def reload_all_configs(new_config_dict=None):
     USE_ORIGINAL_PASSWORD_FLOW = bool(_ocpa.get("use_original_password_flow", False))
 
     DEFAULT_PROXY = format_docker_url(_c.get("default_proxy", ""))
+    _embedded_mihomo = _c.get("embedded_mihomo", {})
+    if not isinstance(_embedded_mihomo, dict):
+        _embedded_mihomo = {}
+    _embedded_defaults = dict(EMBEDDED_MIHOMO_DEFAULTS)
+    _mixed_port = safe_port(_embedded_mihomo.get("mixed_port", _embedded_defaults["mixed_port"]), _embedded_defaults["mixed_port"])
+    _controller_port = safe_port(_embedded_mihomo.get("controller_port", _embedded_defaults["controller_port"]), _embedded_defaults["controller_port"])
+    if _controller_port == _mixed_port:
+        _controller_port = _embedded_defaults["controller_port"] if _mixed_port != _embedded_defaults["controller_port"] else 9091
+    EMBEDDED_MIHOMO = {
+        "enable": safe_bool(_embedded_mihomo.get("enable", _embedded_defaults["enable"]), default=_embedded_defaults["enable"]),
+        "auto_start": safe_bool(_embedded_mihomo.get("auto_start", _embedded_defaults["auto_start"]), default=_embedded_defaults["auto_start"]),
+        "use_as_default_proxy": safe_bool(_embedded_mihomo.get("use_as_default_proxy", _embedded_defaults["use_as_default_proxy"]), default=_embedded_defaults["use_as_default_proxy"]),
+        "subscription_url": str(_embedded_mihomo.get("subscription_url", "") or "").strip(),
+        "mixed_port": _mixed_port,
+        "controller_port": _controller_port,
+        "controller_secret": str(_embedded_mihomo.get("controller_secret", "") or "").strip(),
+        "group_name": str(_embedded_mihomo.get("group_name", _embedded_defaults["group_name"]) or _embedded_defaults["group_name"]).strip()[:120],
+        "selected_group": str(_embedded_mihomo.get("selected_group", "") or "").strip()[:120],
+        "selected_proxy": str(_embedded_mihomo.get("selected_proxy", "") or "").strip()[:200],
+        "test_url": str(_embedded_mihomo.get("test_url", _embedded_defaults["test_url"]) or _embedded_defaults["test_url"]).strip()[:2048],
+        "update_interval_minutes": safe_int(_embedded_mihomo.get("update_interval_minutes", _embedded_defaults["update_interval_minutes"]), _embedded_defaults["update_interval_minutes"], minimum=1),
+        "log_lines": min(5000, safe_int(_embedded_mihomo.get("log_lines", _embedded_defaults["log_lines"]), _embedded_defaults["log_lines"], minimum=10)),
+    }
+    if EMBEDDED_MIHOMO["enable"] and EMBEDDED_MIHOMO["use_as_default_proxy"]:
+        DEFAULT_PROXY = f"http://127.0.0.1:{EMBEDDED_MIHOMO['mixed_port']}"
 
     ENABLE_MULTI_THREAD_REG = _c.get("enable_multi_thread_reg", False)
     REG_THREADS = _c.get("reg_threads", 3)

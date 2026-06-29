@@ -3146,6 +3146,225 @@
                                 </div>
                             </div>
 
+                            <div v-if="config.embedded_mihomo" class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 border-l-4 border-l-teal-500 bg-gradient-to-br from-teal-50/40 to-white">
+                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b border-teal-100 pb-5 gap-4">
+                                    <div>
+                                        <h3 class="text-xl md:text-2xl font-black text-teal-700 tracking-tight flex items-center gap-2"><span><svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 md:w-6 md:h-6 inline-block align-text-bottom text-teal-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 16h6"></path></svg></span> Zeabur 内置 Mihomo</h3>
+                                        <p class="text-xs text-teal-700/80 mt-2 font-medium leading-relaxed">平台托管的 Clash 内核：填好订阅链接 → 保存 → 启动 → 在下方选节点。无需自建 Clash，<span class="font-bold">启用并启动后即拉起节点池</span>。</p>
+                                    </div>
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <span class="px-3 py-1.5 rounded-xl border text-xs font-black inline-flex items-center gap-1.5 shadow-sm"
+                                              :class="mihomoStatusPill().cls">
+                                            <span class="w-1.5 h-1.5 rounded-full" :class="mihomoStatusPill().dot"></span>
+                                            {{ mihomoStatusPill().label }}
+                                        </span>
+                                        <button @click="refreshMihomoAll()" :disabled="mihomoBusy.status" class="h-9 px-3 rounded-xl bg-white border border-teal-200 text-teal-600 hover:bg-teal-50 active:scale-95 transition-all shadow-sm font-black text-xs inline-flex items-center gap-1.5 disabled:opacity-60">
+                                            <span class="inline-flex items-center justify-center" :class="{'animate-spin': mihomoBusy.status}"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 20v-5h-5"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.64 19A9 9 0 0019 18.36L20 15"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.36 5A9 9 0 005 5.64L4 9"></path></svg></span>
+                                            刷新
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6">
+                                    <div class="space-y-5">
+                                        <div class="flex flex-col sm:flex-row gap-3">
+                                            <label class="relative inline-flex flex-1 text-teal-700 font-bold bg-teal-50/80 p-4 rounded-xl border border-teal-200/60 items-center cursor-pointer shadow-sm hover:bg-teal-100 transition-colors group">
+                                                <input type="checkbox" v-model="config.embedded_mihomo.enable" class="sr-only peer">
+                                                <div class="relative w-9 h-5 shrink-0 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-teal-500 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                                <span class="ml-3 text-sm block tracking-wide">启用内置 Mihomo</span>
+                                            </label>
+                                            <label class="relative inline-flex flex-1 text-amber-700 font-bold bg-amber-50/80 p-4 rounded-xl border border-amber-200/60 items-center cursor-pointer shadow-sm hover:bg-amber-100 transition-colors group">
+                                                <input type="checkbox" v-model="config.embedded_mihomo.auto_start" class="sr-only peer">
+                                                <div class="relative w-9 h-5 shrink-0 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-amber-500 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                                <span class="ml-3 text-sm block tracking-wide">开机自启</span>
+                                            </label>
+                                        </div>
+                                        <label class="relative inline-flex w-full text-emerald-700 font-bold bg-emerald-50/80 p-4 rounded-xl border border-emerald-200/60 items-center cursor-pointer shadow-sm hover:bg-emerald-100 transition-colors group">
+                                            <input type="checkbox" v-model="config.embedded_mihomo.use_as_default_proxy" class="sr-only peer">
+                                            <div class="relative w-9 h-5 shrink-0 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-emerald-500 shadow-inner transition-colors duration-300 group-hover:shadow-md"></div>
+                                            <span class="ml-3 text-sm block tracking-wide">设为任务默认代理（注册/拉号走 Mihomo）</span>
+                                        </label>
+
+                                        <div>
+                                            <label class="block text-slate-700 text-xs font-extrabold mb-2 uppercase tracking-wider">订阅链接</label>
+                                            <p class="text-xs text-slate-400 mb-2 font-medium leading-relaxed">支持 Clash / V2Ray 订阅 URL。输入后点“保存并拉取”才生效，不会随输入实时保存。</p>
+                                            <div class="relative">
+                                                <input :type="showPwd.mihomo_sub ? 'text' : 'password'" v-model="mihomoSubUrlDraft" autocomplete="off" spellcheck="false"
+                                                       placeholder="https://example.com/sub?token=..."
+                                                       class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 pr-10 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-colors shadow-sm font-mono text-sm">
+                                                <button @click="showPwd.mihomo_sub = !showPwd.mihomo_sub" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-600 transition-transform hover:scale-110">
+                                                    <svg v-if="showPwd.mihomo_sub" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg><svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a9.97 9.97 0 012.67-3.835m2.89-2.89A9.97 9.97 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.05 10.05 0 01-1.875 3.175m-2.89 2.89l-1.414-1.414M12 15a3 3 0 100-6 3 3 0 000 6z"></path></svg>
+                                                </button>
+                                            </div>
+                                            <div class="flex flex-wrap gap-2 mt-3">
+                                                <button @click="mihomoUpdateSubscription()" :disabled="mihomoBusy.update || !mihomoSubUrlDraft.trim()" class="h-10 px-4 rounded-xl bg-teal-600 text-white hover:bg-teal-700 active:scale-95 transition-all shadow-sm shadow-teal-500/20 font-black text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
+                                                    <svg v-if="mihomoBusy.update" class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="3" class="opacity-25"></circle><path stroke-linecap="round" stroke-width="3" d="M21 12a9 9 0 00-9-9"></path></svg>
+                                                    <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"></path></svg>
+                                                    保存并拉取订阅
+                                                </button>
+                                                <span v-if="mihomoSubUrlDirty" class="inline-flex items-center text-xs font-bold text-amber-600 px-2 py-1 rounded-md bg-amber-50 border border-amber-200">订阅未保存</span>
+                                            </div>
+                                        </div>
+
+                                        <button @click="saveConfig()" class="h-10 px-4 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 active:scale-95 transition-all shadow-sm font-black text-sm inline-flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l2 2 4-4"></path></svg>
+                                            保存配置（含上方开关与端口）
+                                        </button>
+                                    </div>
+
+                                    <div class="space-y-5">
+                                        <div class="bg-slate-50/70 border border-slate-200 rounded-2xl p-5 shadow-inner space-y-3">
+                                            <div>
+                                                <div class="text-xs text-slate-500 font-black uppercase tracking-wider mb-1">混合代理地址</div>
+                                                <div class="font-mono text-sm font-bold text-slate-800 break-all">{{ mihomoMixedProxyUrl() }}</div>
+                                                <div class="text-[11px] text-slate-400 mt-1">注册/拉号时把此地址填到全局默认代理即可走 Mihomo（或开启上方“设为任务默认代理”）。</div>
+                                            </div>
+                                            <div v-if="mihomoStatus?.version" class="text-xs text-slate-500">内核版本：<span class="font-bold text-slate-700">{{ mihomoStatus.version?.version || mihomoStatus.version }}</span></div>
+                                            <div v-if="mihomoStatus?.error" class="text-xs text-rose-600 font-medium break-all">错误：{{ mihomoStatus.error }}</div>
+                                        </div>
+
+                                        <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                                            <div class="text-xs text-slate-500 font-black uppercase tracking-wider mb-3">运行控制</div>
+                                            <div class="flex flex-wrap items-center gap-2.5">
+                                                <button @click="mihomoStart()" :disabled="mihomoBusy.start || !config.embedded_mihomo.enable" class="h-10 px-4 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 active:scale-95 transition-all shadow-sm shadow-emerald-500/20 font-black text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-5.197-3.03A1 1 0 008 9.03v6.94a1 1 0 001.555.832l5.197-3.03a1 1 0 000-1.664z"></path></svg>
+                                                    启动
+                                                </button>
+                                                <button @click="mihomoRestart()" :disabled="mihomoBusy.restart || !config.embedded_mihomo.enable" class="h-10 px-4 rounded-xl bg-amber-400 text-amber-950 hover:bg-amber-500 active:scale-95 transition-all shadow-sm shadow-amber-500/20 font-black text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 20v-5h-5"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.64 19A9 9 0 0019 18.36L20 15"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.36 5A9 9 0 005 5.64L4 9"></path></svg>
+                                                    重启
+                                                </button>
+                                                <button @click="mihomoStop()" :disabled="mihomoBusy.stop" class="h-10 px-4 rounded-xl bg-rose-500 text-white hover:bg-rose-600 active:scale-95 transition-all shadow-sm shadow-rose-500/20 font-black text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="8" y="8" width="8" height="8" rx="1" stroke-width="2"></rect></svg>
+                                                    停止
+                                                </button>
+                                            </div>
+                                            <div class="mt-3 text-[11px] text-slate-400 font-medium">未启用时启动按钮不可点；首次启动需先“保存并拉取订阅”。</div>
+                                        </div>
+
+                                        <div>
+                                            <button @click="showMihomoAdvanced = !showMihomoAdvanced" class="text-xs font-black text-teal-700 hover:text-teal-800 inline-flex items-center gap-1">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 transition-transform" :class="{'rotate-90': showMihomoAdvanced}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                                                高级设置（端口 / 控制密钥 / 策略组名 / 测速地址）
+                                            </button>
+                                            <div v-show="showMihomoAdvanced" class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50/70 border border-slate-200 rounded-2xl p-4 shadow-inner">
+                                                <div>
+                                                    <label class="block text-slate-600 text-xs font-extrabold mb-2 uppercase tracking-wider">Mixed 端口</label>
+                                                    <input type="number" v-model="config.embedded_mihomo.mixed_port" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:border-teal-500 transition-colors shadow-sm text-sm">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-slate-600 text-xs font-extrabold mb-2 uppercase tracking-wider">Controller 端口</label>
+                                                    <input type="number" v-model="config.embedded_mihomo.controller_port" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:border-teal-500 transition-colors shadow-sm text-sm">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-slate-600 text-xs font-extrabold mb-2 uppercase tracking-wider">策略组名（默认）</label>
+                                                    <input type="text" v-model="config.embedded_mihomo.group_name" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:border-teal-500 transition-colors shadow-sm text-sm">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-slate-600 text-xs font-extrabold mb-2 uppercase tracking-wider">Controller Secret</label>
+                                                    <div class="relative">
+                                                        <input :type="showPwd.mihomo_secret ? 'text' : 'password'" v-model="config.embedded_mihomo.controller_secret" autocomplete="off" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 pr-10 focus:outline-none focus:border-teal-500 transition-colors shadow-sm font-mono text-sm">
+                                                        <button @click="showPwd.mihomo_secret = !showPwd.mihomo_secret" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-600 transition-transform hover:scale-110">
+                                                            <svg v-if="showPwd.mihomo_secret" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg><svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a9.97 9.97 0 012.67-3.835m2.89-2.89A9.97 9.97 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.05 10.05 0 01-1.875 3.175m-2.89 2.89l-1.414-1.414M12 15a3 3 0 100-6 3 3 0 000 6z"></path></svg>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div class="sm:col-span-2">
+                                                    <label class="block text-slate-600 text-xs font-extrabold mb-2 uppercase tracking-wider">测速 URL</label>
+                                                    <input type="text" v-model="config.embedded_mihomo.test_url" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:border-teal-500 transition-colors shadow-sm font-mono text-sm">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-slate-600 text-xs font-extrabold mb-2 uppercase tracking-wider">订阅刷新间隔(分钟)</label>
+                                                    <input type="number" v-model="config.embedded_mihomo.update_interval_minutes" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:border-teal-500 transition-colors shadow-sm text-sm">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-slate-600 text-xs font-extrabold mb-2 uppercase tracking-wider">日志行数</label>
+                                                    <input type="number" v-model="config.embedded_mihomo.log_lines" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-lg py-2.5 px-4 focus:outline-none focus:border-teal-500 transition-colors shadow-sm text-sm">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div v-if="config.embedded_mihomo.enable" class="border-t border-slate-200/60 pt-6">
+                                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                                        <div>
+                                            <div class="text-sm font-black text-slate-700 uppercase tracking-wider">策略组 / 节点</div>
+                                            <div class="text-xs text-slate-400 mt-1 font-medium">启动后从这里选节点切流。未运行或无订阅时为空。</div>
+                                        </div>
+                                        <button @click="fetchMihomoGroups()" :disabled="mihomoBusy.groups || !mihomoStatus?.running" class="h-9 px-3 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 active:scale-95 transition-all shadow-sm font-black text-xs inline-flex items-center gap-1.5 disabled:opacity-60">
+                                            <span class="inline-flex items-center justify-center" :class="{'animate-spin': mihomoBusy.groups}"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 20v-5h-5"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.64 19A9 9 0 0019 18.36L20 15"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.36 5A9 9 0 005 5.64L4 9"></path></svg></span>
+                                            重新拉取策略组
+                                        </button>
+                                    </div>
+
+                                    <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-5">
+                                        <div>
+                                            <label class="block text-slate-600 text-xs font-extrabold mb-2 uppercase tracking-wider">策略组</label>
+                                            <select v-model="mihomoSelectedGroup" :disabled="!mihomoGroups.length" class="w-full appearance-none bg-white border border-slate-200 text-slate-700 rounded-xl py-3 px-4 focus:outline-none focus:border-teal-500 transition-colors shadow-sm text-sm font-bold disabled:bg-slate-50 disabled:cursor-not-allowed">
+                                                <option value="" disabled>{{ mihomoGroups.length ? '请选择策略组' : '暂无策略组' }}</option>
+                                                <option v-for="g in mihomoGroups" :key="g.name" :value="g.name">{{ g.name }} ({{ g.type }}){{ g.current ? ' · 当前 ' + g.current : '' }}</option>
+                                            </select>
+                                            <div v-if="mihomoActiveGroup" class="mt-3 text-xs text-slate-500 font-medium bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                                                当前节点：<span class="font-black text-emerald-700">{{ mihomoActiveGroup.current || '无' }}</span> · 共 {{ mihomoActiveGroup.nodes.length }} 个
+                                            </div>
+                                        </div>
+
+                                        <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                                            <div class="grid grid-cols-12 bg-slate-50 text-slate-500 border-b border-slate-200 px-4 py-3 text-xs uppercase tracking-wider font-black">
+                                                <div class="col-span-6 md:col-span-5">节点</div>
+                                                <div class="col-span-3 md:col-span-3">延迟</div>
+                                                <div class="col-span-3 md:col-span-2">状态</div>
+                                                <div class="hidden md:block md:col-span-2 text-right">操作</div>
+                                            </div>
+                                            <div class="max-h-[360px] overflow-y-auto custom-scrollbar font-mono">
+                                                <div v-for="node in (mihomoActiveGroup ? mihomoActiveGroup.nodes : [])" :key="node" class="grid grid-cols-12 px-4 py-3 border-b border-slate-50 items-center gap-2 text-sm" :class="(mihomoActiveGroup && node === mihomoActiveGroup.current) ? 'bg-emerald-50/50' : 'bg-white'">
+                                                    <div class="col-span-6 md:col-span-5 min-w-0">
+                                                        <div class="font-bold text-slate-700 truncate" :title="node">{{ node }}</div>
+                                                        <div v-if="mihomoActiveGroup && node === mihomoActiveGroup.current" class="text-[11px] font-black text-emerald-700 mt-0.5">当前节点</div>
+                                                    </div>
+                                                    <div class="col-span-3 md:col-span-3 font-black" :class="mihomoDelayCls(node)">
+                                                        {{ mihomoDelayText(node) || '未测' }}
+                                                    </div>
+                                                    <div class="col-span-3 md:col-span-2 text-[11px] font-bold text-slate-500">
+                                                        {{ (mihomoActiveGroup && node === mihomoActiveGroup.current) ? '运行中' : (node === mihomoSelectedProxy ? '待切换' : '—') }}
+                                                    </div>
+                                                    <div class="hidden md:flex md:col-span-2 justify-end gap-1.5">
+                                                        <button @click="mihomoTestDelay(node)" :disabled="mihomoBusy.test" class="px-2.5 py-1.5 rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 active:scale-95 text-[11px] font-black disabled:opacity-60 transition-all">测速</button>
+                                                        <button @click="mihomoSelectProxy(node)" :disabled="mihomoBusy.select || (mihomoActiveGroup && node === mihomoActiveGroup.current)" class="px-2.5 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 active:scale-95 text-[11px] font-black disabled:opacity-50 disabled:cursor-not-allowed transition-all">切换</button>
+                                                    </div>
+                                                    <div class="col-span-12 md:hidden flex gap-1.5 mt-1">
+                                                        <button @click="mihomoTestDelay(node)" :disabled="mihomoBusy.test" class="px-2.5 py-1.5 rounded-lg bg-amber-100 text-amber-700 active:scale-95 text-[11px] font-black disabled:opacity-60 transition-all">测速</button>
+                                                        <button @click="mihomoSelectProxy(node)" :disabled="mihomoBusy.select || (mihomoActiveGroup && node === mihomoActiveGroup.current)" class="px-2.5 py-1.5 rounded-lg bg-teal-600 text-white active:scale-95 text-[11px] font-black disabled:opacity-50 transition-all">切换</button>
+                                                    </div>
+                                                </div>
+                                                <div v-if="!mihomoActiveGroup || !mihomoActiveGroup.nodes.length" class="text-center text-slate-400 py-8 text-sm font-bold bg-slate-50/50">
+                                                    {{ mihomoStatus?.running ? '该策略组暂无节点，请先更新订阅或重启' : 'Mihomo 未运行，启动后此处显示节点' }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="border-t border-slate-200/60 mt-6 pt-5">
+                                    <button @click="showMihomoLogs = !showMihomoLogs; if(showMihomoLogs) fetchMihomoLogs()" class="text-xs font-black text-slate-600 hover:text-teal-700 inline-flex items-center gap-1.5">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 transition-transform" :class="{'rotate-90': showMihomoLogs}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                                        运行日志
+                                        <span v-if="mihomoLogs.length" class="text-[10px] font-bold text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-200">{{ mihomoLogs.length }} 行</span>
+                                    </button>
+                                    <div v-show="showMihomoLogs" class="mt-3 bg-slate-900 rounded-2xl border border-slate-700 shadow-inner overflow-hidden">
+                                        <div class="flex items-center justify-between px-4 py-2 border-b border-slate-700/60">
+                                            <span class="text-[11px] font-black text-slate-300 uppercase tracking-wider">日志尾部</span>
+                                            <button @click="fetchMihomoLogs()" :disabled="mihomoBusy.logs" class="text-[11px] font-bold text-slate-300 hover:text-white inline-flex items-center gap-1 disabled:opacity-50">
+                                                <span class="inline-flex items-center justify-center" :class="{'animate-spin': mihomoBusy.logs}"><svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 20v-5h-5"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.64 19A9 9 0 0019 18.36L20 15"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.36 5A9 9 0 005 5.64L4 9"></path></svg></span>
+                                                刷新
+                                            </button>
+                                        </div>
+                                        <pre class="text-[11px] leading-relaxed text-slate-200 font-mono p-4 max-h-[280px] overflow-y-auto custom-scrollbar whitespace-pre-wrap break-all">{{ mihomoLogs.length ? mihomoLogs.join('\n') : '暂无日志' }}</pre>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div class="bg-white p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 border border-slate-200/60 border-l-4 border-l-cyan-500 bg-gradient-to-br from-cyan-50/40 to-white" v-if="config.raw_proxy_pool">
                                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b border-cyan-100 pb-5 gap-4">
                                     <div>

@@ -438,7 +438,9 @@ createApp({
                 db_pass: false,
                 master_rt: false,
                 image2api_url: true,
-                image2api_key: false
+                image2api_key: false,
+                mihomo_sub: false,
+                mihomo_secret: false
             },
 
             toasts: [],
@@ -527,6 +529,27 @@ createApp({
                 newSubscriptionUrl: '',
                 makeSelectedSubscription: true
             },
+            mihomoStatus: null,
+            mihomoGroups: [],
+            mihomoLogs: [],
+            mihomoSelectedGroup: '',
+            mihomoSelectedProxy: '',
+            mihomoDelayResults: {},
+            mihomoBusy: {
+                status: false,
+                start: false,
+                stop: false,
+                restart: false,
+                update: false,
+                groups: false,
+                select: false,
+                test: false,
+                logs: false
+            },
+            mihomoSubUrlDraft: '',
+            mihomoSubUrlDirty: false,
+            showMihomoAdvanced: false,
+            showMihomoLogs: false,
             gmail_oauth_mode: {
                 master_email: '',
                 fission_enable: false,
@@ -608,6 +631,9 @@ createApp({
                 this.mailDomainRuntimeStatsError = '';
                 this.mailDomainRuntimeLastFetchAt = 0;
             }
+        },
+        mihomoSubUrlDraft(val) {
+            this.mihomoSubUrlDirty = String(val || '').trim() !== String(this.config?.embedded_mihomo?.subscription_url || '').trim();
         }
     },
     async mounted() {
@@ -1445,6 +1471,41 @@ createApp({
                 if (!this.config.database.mysql) {
                     this.config.database.mysql = { host: '127.0.0.1', port: 3306, user: 'root', password: '', db_name: 'wenfxl_manager' };
                 }
+                {
+                    const mihomoDefaults = {
+                        enable: false,
+                        auto_start: true,
+                        use_as_default_proxy: false,
+                        subscription_url: "",
+                        mixed_port: 7890,
+                        controller_port: 9090,
+                        controller_secret: "",
+                        group_name: "OpenAI",
+                        selected_group: "",
+                        selected_proxy: "",
+                        test_url: "https://api.openai.com/cdn-cgi/trace",
+                        update_interval_minutes: 60,
+                        log_lines: 200
+                    };
+                    if (!this.config.embedded_mihomo || typeof this.config.embedded_mihomo !== 'object' || Array.isArray(this.config.embedded_mihomo)) {
+                        this.config.embedded_mihomo = { ...mihomoDefaults };
+                    } else {
+                        Object.keys(mihomoDefaults).forEach((k) => {
+                            if (this.config.embedded_mihomo[k] === undefined) this.config.embedded_mihomo[k] = mihomoDefaults[k];
+                        });
+                    }
+                    this.config.embedded_mihomo.enable = normalizeBooleanLike(this.config.embedded_mihomo.enable, false);
+                    this.config.embedded_mihomo.auto_start = normalizeBooleanLike(this.config.embedded_mihomo.auto_start, true);
+                    this.config.embedded_mihomo.use_as_default_proxy = normalizeBooleanLike(this.config.embedded_mihomo.use_as_default_proxy, false);
+                    this.config.embedded_mihomo.mixed_port = parseInt(this.config.embedded_mihomo.mixed_port, 10) || 7890;
+                    this.config.embedded_mihomo.controller_port = parseInt(this.config.embedded_mihomo.controller_port, 10) || 9090;
+                    this.config.embedded_mihomo.controller_secret = String(this.config.embedded_mihomo.controller_secret || '');
+                    this.config.embedded_mihomo.update_interval_minutes = Math.max(1, parseInt(this.config.embedded_mihomo.update_interval_minutes, 10) || 60);
+                    this.config.embedded_mihomo.log_lines = Math.min(5000, Math.max(10, parseInt(this.config.embedded_mihomo.log_lines, 10) || 200));
+                    if (!this.mihomoSubUrlDirty) {
+                        this.mihomoSubUrlDraft = this.config.embedded_mihomo.subscription_url || '';
+                    }
+                }
 				if (!this.config.sub_domain_level) {
                     this.config.sub_domain_level = 1;
                 }
@@ -1954,6 +2015,7 @@ createApp({
             }
             if (tabId === 'proxy') {
                 this.fetchClashPool();
+                this.refreshMihomoAll();
             }
             if (tabId === 'concurrency') {
                 this.fetchMemoryPrediction();
@@ -4271,6 +4333,279 @@ async exportSub2Api() {
                     if (el) el.scrollIntoView({ behavior: 'smooth' });
                 });
             }
+        },
+        async refreshMihomoAll() {
+            await Promise.allSettled([
+                this.fetchMihomoStatus(),
+                this.fetchMihomoGroups(),
+                this.fetchMihomoLogs()
+            ]);
+        },
+        async fetchMihomoStatus() {
+            this.mihomoBusy.status = true;
+            try {
+                const res = await this.authFetch('/api/mihomo/status');
+                const data = await res.json();
+                if (data.status === 'success') {
+                    this.mihomoStatus = data.data || {};
+                    if (this.mihomoStatus?.enabled && this.mihomoStatus?.running && !this.mihomoStatus?.controller_ok) {
+                        // 控制端暂未就绪，稍后再拉一次
+                        setTimeout(() => { if (this.currentTab === 'proxy') this.fetchMihomoGroups(); }, 1500);
+                    }
+                } else {
+                    this.mihomoStatus = this.mihomoStatus || {};
+                    if (data.message) this.mihomoStatus.error = data.message;
+                }
+            } catch (e) {
+                // 静默：状态读取失败不弹窗
+            } finally {
+                this.mihomoBusy.status = false;
+            }
+        },
+        async fetchMihomoGroups() {
+            if (!this.mihomoStatus || !this.mihomoStatus.running) {
+                this.mihomoGroups = [];
+                return;
+            }
+            this.mihomoBusy.groups = true;
+            try {
+                const res = await this.authFetch('/api/mihomo/groups');
+                const data = await res.json();
+                if (data.status === 'success') {
+                    const proxiesMap = (data.data && data.data.proxies) ? data.data.proxies : (data.data || {});
+                    const groupTypes = new Set(['Selector', 'URLTest', 'Fallback', 'LoadBalance']);
+                    const groups = Object.keys(proxiesMap || {})
+                        .filter((name) => groupTypes.has(proxiesMap[name]?.type))
+                        .map((name) => {
+                            const g = proxiesMap[name] || {};
+                            const nodes = Array.isArray(g.all) ? g.all.slice() : [];
+                            const historyMap = {};
+                            nodes.forEach((n) => {
+                                const h = proxiesMap[n]?.history;
+                                if (Array.isArray(h) && h.length) {
+                                    historyMap[n] = h[h.length - 1];
+                                }
+                            });
+                            return {
+                                name,
+                                type: g.type || '',
+                                current: g.now || '',
+                                nodes,
+                                history: historyMap
+                            };
+                        });
+                    this.mihomoGroups = groups;
+                    const configuredGroup = String(this.config?.embedded_mihomo?.group_name || '').trim();
+                    const persistedGroup = String(this.config?.embedded_mihomo?.selected_group || '').trim();
+                    const hasGroup = (n) => groups.some((g) => g.name === n);
+                    if (!this.mihomoSelectedGroup || !hasGroup(this.mihomoSelectedGroup)) {
+                        if (hasGroup(persistedGroup)) this.mihomoSelectedGroup = persistedGroup;
+                        else if (hasGroup(configuredGroup)) this.mihomoSelectedGroup = configuredGroup;
+                        else if (groups.length) this.mihomoSelectedGroup = groups[0].name;
+                        else this.mihomoSelectedGroup = '';
+                    }
+                    const activeGroup = groups.find((g) => g.name === this.mihomoSelectedGroup);
+                    if (activeGroup) {
+                        const persistedProxy = String(this.config?.embedded_mihomo?.selected_proxy || '').trim();
+                        if (persistedProxy && activeGroup.nodes.includes(persistedProxy)) {
+                            this.mihomoSelectedProxy = persistedProxy;
+                        } else if (activeGroup.current && activeGroup.nodes.includes(activeGroup.current)) {
+                            this.mihomoSelectedProxy = activeGroup.current;
+                        } else if (activeGroup.nodes.length) {
+                            this.mihomoSelectedProxy = activeGroup.nodes[0];
+                        } else {
+                            this.mihomoSelectedProxy = '';
+                        }
+                    } else {
+                        this.mihomoSelectedProxy = '';
+                    }
+                } else {
+                    this.mihomoGroups = [];
+                    if (data.message) this.showToast('读取策略组失败：' + data.message, 'error');
+                }
+            } catch (e) {
+                this.mihomoGroups = [];
+            } finally {
+                this.mihomoBusy.groups = false;
+            }
+        },
+        async fetchMihomoLogs() {
+            this.mihomoBusy.logs = true;
+            try {
+                const res = await this.authFetch('/api/mihomo/logs');
+                const data = await res.json();
+                if (data.status === 'success') {
+                    this.mihomoLogs = Array.isArray(data.data?.lines) ? data.data.lines : [];
+                } else {
+                    this.mihomoLogs = [];
+                }
+            } catch (e) {
+                this.mihomoLogs = [];
+            } finally {
+                this.mihomoBusy.logs = false;
+            }
+        },
+        async mihomoStart() {
+            this.mihomoBusy.start = true;
+            try {
+                const res = await this.authFetch('/api/mihomo/start', { method: 'POST' });
+                const data = await res.json();
+                this.showToast(data.message || (data.status === 'success' ? 'Mihomo 已启动' : '启动失败'), data.status);
+                if (data.status === 'success') {
+                    setTimeout(() => this.refreshMihomoAll(), 1200);
+                }
+            } catch (e) {
+                this.showToast('Mihomo 启动请求失败', 'error');
+            } finally {
+                this.mihomoBusy.start = false;
+            }
+        },
+        async mihomoStop() {
+            this.mihomoBusy.stop = true;
+            try {
+                const res = await this.authFetch('/api/mihomo/stop', { method: 'POST' });
+                const data = await res.json();
+                this.showToast(data.message || (data.status === 'success' ? 'Mihomo 已停止' : '停止失败'), data.status);
+                if (data.status === 'success') {
+                    setTimeout(() => this.refreshMihomoAll(), 800);
+                }
+            } catch (e) {
+                this.showToast('Mihomo 停止请求失败', 'error');
+            } finally {
+                this.mihomoBusy.stop = false;
+            }
+        },
+        async mihomoRestart() {
+            this.mihomoBusy.restart = true;
+            try {
+                const res = await this.authFetch('/api/mihomo/restart', { method: 'POST' });
+                const data = await res.json();
+                this.showToast(data.message || (data.status === 'success' ? 'Mihomo 已重启' : '重启失败'), data.status);
+                if (data.status === 'success') {
+                    setTimeout(() => this.refreshMihomoAll(), 1500);
+                }
+            } catch (e) {
+                this.showToast('Mihomo 重启请求失败', 'error');
+            } finally {
+                this.mihomoBusy.restart = false;
+            }
+        },
+        async mihomoUpdateSubscription() {
+            const url = String(this.mihomoSubUrlDraft || '').trim();
+            if (!url) {
+                this.showToast('请先填写订阅链接', 'warning');
+                return;
+            }
+            this.mihomoBusy.update = true;
+            try {
+                const res = await this.authFetch('/api/mihomo/subscription/update', {
+                    method: 'POST',
+                    body: JSON.stringify({ subscription_url: url, restart: true })
+                });
+                const data = await res.json();
+                this.showToast(data.message || (data.status === 'success' ? '订阅已更新' : '订阅更新失败'), data.status);
+                if (data.status === 'success') {
+                    this.mihomoSubUrlDirty = false;
+                    if (this.config?.embedded_mihomo) {
+                        this.config.embedded_mihomo.subscription_url = url;
+                    }
+                    setTimeout(() => this.refreshMihomoAll(), 1500);
+                }
+            } catch (e) {
+                this.showToast('订阅更新请求失败', 'error');
+            } finally {
+                this.mihomoBusy.update = false;
+            }
+        },
+        async mihomoSelectProxy(proxyName) {
+            const proxy = String(proxyName || this.mihomoSelectedProxy || '').trim();
+            const group = String(this.mihomoSelectedGroup || this.config?.embedded_mihomo?.group_name || '').trim();
+            if (!group || !proxy) {
+                this.showToast('请先选择策略组和节点', 'warning');
+                return;
+            }
+            this.mihomoBusy.select = true;
+            try {
+                const res = await this.authFetch('/api/mihomo/select', {
+                    method: 'POST',
+                    body: JSON.stringify({ group, proxy, persist: true })
+                });
+                const data = await res.json();
+                this.showToast(data.message || (data.status === 'success' ? '节点已切换' : '切换节点失败'), data.status);
+                if (data.status === 'success') {
+                    this.mihomoSelectedProxy = proxy;
+                    if (this.config?.embedded_mihomo) {
+                        this.config.embedded_mihomo.selected_group = group;
+                        this.config.embedded_mihomo.selected_proxy = proxy;
+                    }
+                    await this.fetchMihomoGroups();
+                }
+            } catch (e) {
+                this.showToast('切换节点请求失败', 'error');
+            } finally {
+                this.mihomoBusy.select = false;
+            }
+        },
+        async mihomoTestDelay(proxyName) {
+            const proxy = String(proxyName || '').trim();
+            const group = String(this.mihomoSelectedGroup || '').trim();
+            if (!proxy) {
+                this.showToast('请选择要测速的节点', 'warning');
+                return;
+            }
+            this.mihomoBusy.test = true;
+            try {
+                const res = await this.authFetch('/api/mihomo/test', {
+                    method: 'POST',
+                    body: JSON.stringify({ group, proxy })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    const result = data.data || {};
+                    this.mihomoDelayResults = { ...this.mihomoDelayResults, [proxy]: result };
+                    this.showToast(`${proxy}：${result.delay != null ? result.delay + ' ms' : (result.message || '测速完成')}`, 'success');
+                } else {
+                    this.showToast(data.message || '测速失败', 'error');
+                }
+            } catch (e) {
+                this.showToast('测速请求失败', 'error');
+            } finally {
+                this.mihomoBusy.test = false;
+            }
+        },
+        mihomoStatusPill() {
+            const s = this.mihomoStatus;
+            if (!s) return { label: '未知', cls: 'bg-slate-100 text-slate-600 border-slate-200', dot: 'bg-slate-400' };
+            if (!s.enabled) return { label: '未启用', cls: 'bg-slate-100 text-slate-500 border-slate-200', dot: 'bg-slate-400' };
+            if (s.running && s.controller_ok) return { label: '运行中', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500 animate-pulse' };
+            if (s.running) return { label: '启动中', cls: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500 animate-pulse' };
+            if (s.error) return { label: '异常', cls: 'bg-rose-50 text-rose-700 border-rose-200', dot: 'bg-rose-500' };
+            return { label: '已停止', cls: 'bg-slate-100 text-slate-600 border-slate-200', dot: 'bg-slate-400' };
+        },
+        mihomoMixedProxyUrl() {
+            const port = this.mihomoStatus?.mixed_port || this.config?.embedded_mihomo?.mixed_port || 7890;
+            const running = this.mihomoStatus?.running;
+            const prefix = running ? '' : '(未运行) ';
+            return `${prefix}http://127.0.0.1:${port}`;
+        },
+        mihomoActiveGroup() {
+            return this.mihomoGroups.find((g) => g.name === this.mihomoSelectedGroup) || null;
+        },
+        mihomoDelayText(proxyName) {
+            const r = this.mihomoDelayResults?.[proxyName];
+            if (!r) return '';
+            if (r.delay != null) return r.delay + ' ms';
+            return r.message || 'error';
+        },
+        mihomoDelayCls(proxyName) {
+            const r = this.mihomoDelayResults?.[proxyName];
+            if (!r) return 'text-slate-400';
+            if (r.delay != null) {
+                if (r.delay < 300) return 'text-emerald-700';
+                if (r.delay < 800) return 'text-amber-600';
+                return 'text-rose-600';
+            }
+            return 'text-rose-600';
         },
         async exportAllAccounts() {
             try {

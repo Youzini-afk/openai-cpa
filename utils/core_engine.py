@@ -755,7 +755,7 @@ def handle_registration_result(result: Any, cpa_upload: bool = False, run_ctx: d
     return ret_status
 
 def run_and_refresh(proxy, args, cpa_upload=False, skip_switch=False, assigned_domain=None, batch_id=None, worker_index=None):
-    proxy = format_docker_url(proxy)
+    proxy = format_docker_url(proxy, preserve_loopback=cfg.proxy_requires_loopback_preserve(proxy))
     """切节点 → 注册 → 处理结果。"""
     if not skip_switch:
         if not smart_switch_node(proxy):
@@ -1596,7 +1596,7 @@ async def sub2api_main_loop(args, async_stop_event: asyncio.Event, executor=None
                 await asyncio.sleep(1)
 
                 def _sub2api_run_wrapper(p, skip_switch, assigned_domain=None, batch_id=None, worker_index=None):
-                    p = format_docker_url(p)
+                    p = format_docker_url(p, preserve_loopback=cfg.proxy_requires_loopback_preserve(p))
                     if not skip_switch:
                         if not smart_switch_node(p):
                             print(f"[{ts()}] [WARNING] [Sub2API补货] 全局节点切换失败...")
@@ -1893,7 +1893,7 @@ def handle_oauth_upgrade_result(email: str, result: Any, run_ctx: dict = None) -
 
 
 def run_oauth_only_and_sync(email, password, proxy, args, access_token="", device_id="", user_agent=""):
-    proxy = format_docker_url(proxy)
+    proxy = format_docker_url(proxy, preserve_loopback=cfg.proxy_requires_loopback_preserve(proxy))
     if not smart_switch_node(proxy):
         print(f"[{ts()}] [WARNING] {proxy} 节点切换失败...")
 

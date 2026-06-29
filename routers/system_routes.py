@@ -24,8 +24,10 @@ from utils import core_engine, db_manager
 from utils.email_providers import mail_service
 from utils.config import reload_all_configs
 from utils.integrations.tg_notifier import send_tg_msg_async
+import utils.integrations.clash_manager as clash_manager
 from utils.memory_predictor import build_memory_report
 from utils.system_maintenance import get_cleanup_status
+from utils.embedded_mihomo import get_manager
 import utils.config as cfg
 
 router = APIRouter()
@@ -37,6 +39,22 @@ class DummyArgs:
     def __init__(self, proxy=None, once=False):
         self.proxy = proxy
         self.once = once
+
+
+def _ensure_embedded_mihomo_ready_for_task() -> Optional[str]:
+    settings = getattr(core_engine.cfg, "EMBEDDED_MIHOMO", {}) or {}
+    if not (settings.get("enable") and settings.get("use_as_default_proxy")):
+        return None
+    manager = get_manager(settings)
+    if not manager.is_running() and settings.get("auto_start"):
+        try:
+            manager.start(managed=True)
+        except Exception as exc:
+            return f"内置 Mihomo 启动失败，任务未启动: {exc}"
+    if not manager.is_running():
+        return "内置 Mihomo 已配置为默认代理，但当前未运行；请先启动 Mihomo 或关闭 use_as_default_proxy。"
+    return None
+
 
 class LoginData(BaseModel): password: str
 class DomainRuntimeActionReq(BaseModel): domain: str
@@ -602,6 +620,10 @@ async def start_task(token: str = Depends(verify_token)):
     except Exception as e:
         print(f"[{core_engine.ts()}] [警告] 启动重载提示: {e}")
 
+    mihomo_error = _ensure_embedded_mihomo_ready_for_task()
+    if mihomo_error:
+        return {"status": "error", "message": mihomo_error}
+
     default_proxy = getattr(core_engine.cfg, 'DEFAULT_PROXY', None)
     args = DummyArgs(proxy=default_proxy if default_proxy else None)
     core_engine.run_stats.update({"success": 0, "failed": 0, "retries": 0, "pwd_blocked": 0, "phone_verify": 0, "start_time": time.time(),"target": 0})
@@ -733,6 +755,9 @@ async def run_system_cleanup(req: CleanupRunReq, token: str = Depends(verify_tok
 @router.post("/api/start_check")
 async def start_check_api(token: str = Depends(verify_token)):
     if engine.is_running(): return {"code": 400, "message": "系统正在运行中，请先停止主任务！"}
+    mihomo_error = _ensure_embedded_mihomo_ready_for_task()
+    if mihomo_error:
+        return {"code": 400, "message": mihomo_error}
     default_proxy = getattr(core_engine.cfg, 'DEFAULT_PROXY', None)
     engine.start_check(DummyArgs(proxy=default_proxy if default_proxy else None))
     return {"code": 200, "message": "独立测活指令已下发！"}

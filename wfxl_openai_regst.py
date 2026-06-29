@@ -30,6 +30,35 @@ from global_state import engine, log_history, append_log
 from routers import api_routes
 
 
+def _start_embedded_mihomo_background() -> None:
+    try:
+        reload_all_configs()
+        settings = getattr(core_engine.cfg, "EMBEDDED_MIHOMO", {}) or {}
+        if not (settings.get("enable") and settings.get("auto_start") and settings.get("subscription_url")):
+            return
+    except Exception as e:
+        print(f"[{core_engine.ts()}] [Mihomo] 启动前配置读取失败: {e}")
+        return
+
+    def _runner():
+        try:
+            from utils.embedded_mihomo import get_manager
+            get_manager(settings).start(managed=True)
+            print(f"[{core_engine.ts()}] [Mihomo] 内置 Mihomo 已在后台启动。")
+        except Exception as e:
+            print(f"[{core_engine.ts()}] [Mihomo] 内置 Mihomo 启动失败: {e}")
+
+    threading.Thread(target=_runner, daemon=True).start()
+
+
+def _stop_managed_embedded_mihomo() -> None:
+    try:
+        from utils.embedded_mihomo import get_manager
+        get_manager(getattr(core_engine.cfg, "EMBEDDED_MIHOMO", {}) or {}).stop(only_if_managed=True)
+    except Exception as e:
+        print(f"[{core_engine.ts()}] [Mihomo] 内置 Mihomo 停止失败: {e}")
+
+
 def _get_env_int(name: str, default: int) -> int:
     raw_value = str(os.getenv(name, "")).strip()
     if not raw_value:
@@ -193,9 +222,11 @@ def _find_first_available_port(host: str, start_port: int, max_ports: int = WEB_
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _start_embedded_mihomo_background()
     yield
     print("\n" + "="*65, flush=True)
     print("🛑 接收到系统终止信号，正在强制结束引擎...", flush=True)
+    _stop_managed_embedded_mihomo()
     try:
         if engine.is_running():
             engine.stop()
@@ -243,6 +274,19 @@ def _worker_push_thread():
     def _internal_start():
         try: reload_all_configs()
         except: pass
+        settings = getattr(core_engine.cfg, "EMBEDDED_MIHOMO", {}) or {}
+        if settings.get("enable") and settings.get("use_as_default_proxy"):
+            try:
+                from utils.embedded_mihomo import get_manager
+                manager = get_manager(settings)
+                if not manager.is_running() and settings.get("auto_start"):
+                    manager.start(managed=True)
+                if not manager.is_running():
+                    print(f"[{core_engine.ts()}] [Mihomo] 内置 Mihomo 未运行，集群启动任务已取消。")
+                    return
+            except Exception as e:
+                print(f"[{core_engine.ts()}] [Mihomo] 内置 Mihomo 预启动失败，集群启动任务已取消: {e}")
+                return
         args = DummyArgs(proxy=getattr(core_engine.cfg, 'DEFAULT_PROXY', None))
         core_engine.run_stats.update({"success": 0, "failed": 0, "retries": 0, "pwd_blocked": 0, "phone_verify": 0, "start_time": time.time()})
         mail_service.start_mail_domain_runtime_tracking()

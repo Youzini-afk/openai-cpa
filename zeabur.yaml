@@ -32,7 +32,8 @@ spec:
     3. 在控制台里保存你的邮箱、代理、仓管等配置
 
     ## 云端注意事项
-    - Zeabur 上没有本地 Clash / Mihomo 守护进程，`default_proxy`、Clash API 等配置请改成外部可访问地址，或者留空
+    - Zeabur 镜像内置 Mihomo，但默认关闭；需要代理时到控制台“网络代理”页的“Zeabur 内置 Mihomo”卡片填写订阅、保存并启动
+    - `/healthz` 只检查 Web 服务，不会因为 Mihomo 订阅或节点异常导致整站重启循环
     - 需要持久化数据时不要删除 `/app/data` 这个挂载卷
     - 直接 GitHub 自动部署时主要依赖仓库根目录 `Dockerfile`；`zeabur.yaml` 负责提供模板默认值
 
